@@ -1,0 +1,7 @@
+{
+  "name": "Autonomia+",
+  "description": "A web application to manage vehicle fuel cycles, track mileage, consumption, and refueling to estimate the maximum and remaining range.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

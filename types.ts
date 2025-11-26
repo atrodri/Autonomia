@@ -5,6 +5,7 @@ export type HistoryEvent =
 
 export interface Cycle {
   id: string;
+  userId: string;
   name: string;
   startDate: string;
   initialMileage: number;
@@ -14,3 +15,14 @@ export interface Cycle {
   history: HistoryEvent[];
   status: 'active' | 'finished';
 }
+
+export interface User {
+  id: string;
+  fullName: string;
+  username: string;
+  email: string;
+  password; // In a real app, this would be a hash.
+  confirmed: boolean;
+}
+
+export type AuthView = 'auth' | 'login' | 'register';

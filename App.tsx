@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import type { Cycle, HistoryEvent } from './types';
+import type { Cycle, HistoryEvent, User, AuthView } from './types';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import CycleForm from './components/CycleForm';
 import CycleView from './components/CycleView';
@@ -9,6 +9,9 @@ import ReportView from './components/ReportView';
 import TripView from './components/TripView';
 import { Modal } from './components/ui/Modal';
 import { Button } from './components/ui/Button';
+import AuthScreen from './components/AuthView';
+import LoginView from './components/LoginView';
+import RegisterView from './components/RegisterView';
 
 const recalculateCycleStateFromHistory = (initialCycleState: Cycle, updatedHistory: HistoryEvent[]) => {
   const sortedHistory = [...updatedHistory].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -42,6 +45,11 @@ const recalculateCycleStateFromHistory = (initialCycleState: Cycle, updatedHisto
 };
 
 const App: React.FC = () => {
+  const [users, setUsers] = useLocalStorage<User[]>('autonomia-plus-users', []);
+  const [currentUser, setCurrentUser] = useLocalStorage<User | null>('autonomia-plus-currentUser', null);
+  const [authView, setAuthView] = useState<AuthView>('auth');
+  const [registrationSuccess, setRegistrationSuccess] = useState(false);
+  
   const [cycles, setCycles] = useLocalStorage<Cycle[]>('autonomia-plus-cycles', []);
   const [activeCycleId, setActiveCycleId] = useState<string | null>(null);
   const [reportCycleId, setReportCycleId] = useState<string | null>(null);
@@ -50,14 +58,49 @@ const App: React.FC = () => {
   const [cycleToDeleteId, setCycleToDeleteId] = useState<string | null>(null);
   const [eventToEdit, setEventToEdit] = useState<HistoryEvent | null>(null);
   const [eventToDelete, setEventToDelete] = useState<HistoryEvent | null>(null);
+  
+  const userCycles = currentUser ? cycles.filter(c => c.userId === currentUser.id) : [];
 
-  const activeCycle = cycles.find(c => c.id === activeCycleId);
-  const reportCycle = cycles.find(c => c.id === reportCycleId);
-  const cycleToDelete = cycles.find(c => c.id === cycleToDeleteId);
-  const activeCycles = cycles.filter(c => c.status === 'active');
-  const finishedCycles = cycles.filter(c => c.status === 'finished');
+  const activeCycle = userCycles.find(c => c.id === activeCycleId);
+  const reportCycle = userCycles.find(c => c.id === reportCycleId);
+  const cycleToDelete = userCycles.find(c => c.id === cycleToDeleteId);
+  const activeCycles = userCycles.filter(c => c.status === 'active');
+  const finishedCycles = userCycles.filter(c => c.status === 'finished');
   
   const isHomeScreen = !isCreating && !activeCycle && !reportCycle && !isTrackingTrip;
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setActiveCycleId(null);
+    setReportCycleId(null);
+    setIsCreating(false);
+    setIsTrackingTrip(false);
+    setAuthView('auth');
+  };
+  
+  const handleRegister = (newUser: Omit<User, 'id' | 'confirmed'>): boolean => {
+    const usernameExists = users.some(u => u.username.toLowerCase() === newUser.username.toLowerCase());
+    if (usernameExists) {
+      alert("Nome de usuário já existe.");
+      return false;
+    }
+    const user: User = { ...newUser, id: generateUniqueId(), confirmed: false };
+    setUsers([...users, user]);
+    setRegistrationSuccess(true);
+    setAuthView('login');
+    return true;
+  };
+
+  const handleLogin = (username: string, password_raw: string): boolean => {
+      const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
+      if (user && user.password === password_raw) {
+          setCurrentUser(user);
+          setRegistrationSuccess(false);
+          return true;
+      } else {
+          return false;
+      }
+  };
 
   const handleStartCreation = () => {
     setIsCreating(true);
@@ -98,10 +141,12 @@ const App: React.FC = () => {
 
   const generateUniqueId = () => new Date().toISOString() + Math.random().toString(36).substring(2, 9);
 
-  const handleCreateCycle = useCallback((cycleData: Omit<Cycle, 'id' | 'currentMileage' | 'history' | 'status' | 'fuelAmount' | 'consumption'>) => {
+  const handleCreateCycle = useCallback((cycleData: Omit<Cycle, 'id' | 'userId' | 'currentMileage' | 'history' | 'status' | 'fuelAmount' | 'consumption'>) => {
+    if (!currentUser) return;
     const newCycle: Cycle = {
       ...cycleData,
       id: generateUniqueId(),
+      userId: currentUser.id,
       currentMileage: cycleData.initialMileage,
       fuelAmount: 0,
       consumption: 0,
@@ -111,7 +156,7 @@ const App: React.FC = () => {
     setCycles(prev => [...prev, newCycle]);
     setIsCreating(false);
     setActiveCycleId(newCycle.id);
-  }, [setCycles]);
+  }, [setCycles, currentUser]);
 
   const updateActiveCycle = (updateFn: (cycle: Cycle) => Cycle) => {
     if (!activeCycleId) return;
@@ -257,6 +302,25 @@ const App: React.FC = () => {
     setEventToDelete(null);
   };
 
+  if (!currentUser) {
+    let authContent;
+    switch(authView) {
+      case 'login':
+        authContent = <LoginView onLogin={handleLogin} onSwitchToRegister={() => setAuthView('register')} registrationSuccess={registrationSuccess} />;
+        break;
+      case 'register':
+        authContent = <RegisterView onRegister={handleRegister} onSwitchToLogin={() => setAuthView('login')} />;
+        break;
+      default:
+        authContent = <AuthScreen onLoginClick={() => setAuthView('login')} onRegisterClick={() => setAuthView('register')} />;
+    }
+    return (
+      <div className="min-h-screen bg-[#0A0A0A] text-[#CFCFCF] flex items-center justify-center p-4">
+        {authContent}
+      </div>
+    );
+  }
+
   const renderContent = () => {
     if (isCreating) {
       return <CycleForm onSubmit={handleCreateCycle} onCancel={handleCancelCreation} />;
@@ -291,6 +355,7 @@ const App: React.FC = () => {
 
     return (
       <HomeScreen
+        fullName={currentUser.fullName}
         activeCycles={activeCycles}
         finishedCycles={finishedCycles}
         onNewCycleClick={handleStartCreation}
@@ -303,7 +368,7 @@ const App: React.FC = () => {
   
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-[#CFCFCF] flex flex-col">
-      {!isHomeScreen && <Header />}
+      <Header username={currentUser.username} onLogout={handleLogout} />
       <main className={`container mx-auto p-4 md:p-6 flex-grow ${isHomeScreen ? 'flex items-center' : ''}`}>
         {renderContent()}
       </main>

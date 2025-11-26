@@ -5,6 +5,7 @@ import { Card } from './ui/Card';
 import { ChevronRightIcon, FileTextIcon, TrashIcon } from './icons/Icons';
 
 interface HomeScreenProps {
+  fullName: string;
   activeCycles: Cycle[];
   finishedCycles: Cycle[];
   onNewCycleClick: () => void;
@@ -13,7 +14,7 @@ interface HomeScreenProps {
   onDeleteCycle: (id: string) => void;
 }
 
-const HomeScreen: React.FC<HomeScreenProps> = ({ activeCycles, finishedCycles, onNewCycleClick, onSelectCycle, onSelectReport, onDeleteCycle }) => {
+const HomeScreen: React.FC<HomeScreenProps> = ({ fullName, activeCycles, finishedCycles, onNewCycleClick, onSelectCycle, onSelectReport, onDeleteCycle }) => {
   const numberFormatter = useMemo(() => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 }), []);
 
   const formatDate = (dateStr: string) => {
@@ -26,17 +27,11 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ activeCycles, finishedCycles, o
 
   return (
     <div className="flex flex-col items-center text-center w-full">
-      <div className="mb-8 flex items-end justify-center">
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 md:h-14 md:w-14 text-[#FF6B00] mr-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10"></circle>
-            <circle cx="12" cy="12" r="3"></circle>
-            <line x1="12" y1="22" x2="12" y2="15"></line>
-            <line x1="5.64" y1="5.64" x2="9.17" y2="9.17"></line>
-            <line x1="18.36" y1="5.64" x2="14.83" y2="9.17"></line>
-        </svg>
-        <h1 className="text-5xl md:text-6xl font-bold text-white tracking-tight">
-          Autonomia<span className="text-[#FF6B00]">+</span>
-        </h1>
+      <div className="mb-8 flex flex-col items-center justify-center">
+         <h1 className="text-2xl font-bold text-white mb-2">
+           Olá, <span className="text-[#FF6B00]">{fullName}</span>!
+         </h1>
+         <p className="text-[#CFCFCF]">Bem-vindo(a) ao seu painel.</p>
       </div>
       
       <div className="mb-6">

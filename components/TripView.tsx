@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import type { Cycle } from '../types';
+import type { Cycle, HistoryEvent } from '../types';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
@@ -13,14 +13,15 @@ declare global {
 }
 
 interface TripViewProps {
-  cycle: Cycle;
+  cycle?: Cycle;
   onEndTrip: () => void;
-  onAddCheckpoint: (distance: number, date: string) => void;
+  onAddCheckpoint?: (distance: number, date: string, routeData: { origin: any, destination: any }) => void;
+  tripToView?: HistoryEvent | null;
 }
 
 type NavigationState = 'planning' | 'calculated' | 'navigating' | 'finished';
 
-const TripView: React.FC<TripViewProps> = ({ cycle, onEndTrip, onAddCheckpoint }) => {
+const TripView: React.FC<TripViewProps> = ({ cycle, onEndTrip, onAddCheckpoint, tripToView }) => {
   const [destination, setDestination] = useState('');
   const [navigationState, setNavigationState] = useState<NavigationState>('planning');
   const [route, setRoute] = useState<any>(null);
@@ -43,6 +44,7 @@ const TripView: React.FC<TripViewProps> = ({ cycle, onEndTrip, onAddCheckpoint }
   const lastPositionRef = useRef<any>(null);
 
   const isNavigating = navigationState === 'navigating';
+  const isViewingTrip = !!tripToView;
 
   // Initialize Map and Services
   useEffect(() => {
@@ -64,92 +66,54 @@ const TripView: React.FC<TripViewProps> = ({ cycle, onEndTrip, onAddCheckpoint }
                         elementType: "labels.text.fill",
                         stylers: [{ color: "#d59563" }],
                     },
-                    {
-                        featureType: "poi",
-                        elementType: "labels.text.fill",
-                        stylers: [{ color: "#d59563" }],
-                    },
-                    {
-                        featureType: "poi.park",
-                        elementType: "geometry",
-                        stylers: [{ color: "#263c3f" }],
-                    },
-                    {
-                        featureType: "road",
-                        elementType: "geometry",
-                        stylers: [{ color: "#38414e" }],
-                    },
-                    {
-                        featureType: "road",
-                        elementType: "geometry.stroke",
-                        stylers: [{ color: "#212a37" }],
-                    },
-                    {
-                        featureType: "road",
-                        elementType: "labels.text.fill",
-                        stylers: [{ color: "#9ca5b3" }],
-                    },
-                    {
-                        featureType: "road.highway",
-                        elementType: "geometry",
-                        stylers: [{ color: "#FF6B00" }],
-                    },
-                    {
-                        featureType: "road.highway",
-                        elementType: "geometry.stroke",
-                        stylers: [{ color: "#1f2835" }],
-                    },
-                    {
-                        featureType: "transit",
-                        elementType: "geometry",
-                        stylers: [{ color: "#2f3948" }],
-                    },
-                    {
-                        featureType: "water",
-                        elementType: "geometry",
-                        stylers: [{ color: "#17263c" }],
-                    },
-                    {
-                        featureType: "water",
-                        elementType: "labels.text.fill",
-                        stylers: [{ color: "#515c6d" }],
-                    },
+                    { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#d59563" }] },
+                    { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#263c3f" }] },
+                    { featureType: "road", elementType: "geometry", stylers: [{ color: "#38414e" }] },
+                    { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#212a37" }] },
+                    { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#9ca5b3" }] },
+                    { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#FF6B00" }] },
+                    { featureType: "road.highway", elementType: "geometry.stroke", stylers: [{ color: "#1f2835" }] },
+                    { featureType: "transit", elementType: "geometry", stylers: [{ color: "#2f3948" }] },
+                    { featureType: "water", elementType: "geometry", stylers: [{ color: "#17263c" }] },
+                    { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#515c6d" }] },
                 ],
             });
 
             mapInstance.current.addListener('dragstart', () => {
-                setIsFollowingUser(false);
+                if(isNavigating) setIsFollowingUser(false);
             });
 
             directionsService.current = new window.google.maps.DirectionsService();
             directionsRenderer.current = new window.google.maps.DirectionsRenderer({
-                polylineOptions: {
-                    strokeColor: '#FF6B00',
-                    strokeWeight: 6,
-                    strokeOpacity: 0.8,
-                },
+                polylineOptions: { strokeColor: '#FF6B00', strokeWeight: 6, strokeOpacity: 0.8 },
                 suppressMarkers: true,
             });
             directionsRenderer.current.setMap(mapInstance.current);
+
+            // If we are viewing a past trip, calculate its route immediately
+            if (isViewingTrip && tripToView.type === 'trip' && tripToView.origin && tripToView.destination) {
+                 directionsService.current.route({
+                    origin: tripToView.origin,
+                    destination: tripToView.destination,
+                    travelMode: 'DRIVING',
+                  }, (result: any, status: string) => {
+                    if (status === 'OK') {
+                        directionsRenderer.current.setDirections(result);
+                    }
+                });
+            }
         };
         
-        if (navigator.geolocation) {
+        if (navigator.geolocation && !isViewingTrip) {
             navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    initializeMap({
-                        lat: position.coords.latitude,
-                        lng: position.coords.longitude,
-                    });
-                },
-                () => {
-                    initializeMap(defaultCenter); // Fallback on error/denial
-                }
+                (position) => initializeMap({ lat: position.coords.latitude, lng: position.coords.longitude }),
+                () => initializeMap(defaultCenter)
             );
         } else {
-            initializeMap(defaultCenter); // Fallback if geolocation is not supported
+            initializeMap(defaultCenter);
         }
     }
-  }, []);
+  }, [isViewingTrip, tripToView]);
 
   // Initialize Autocomplete
   useEffect(() => {
@@ -167,43 +131,38 @@ const TripView: React.FC<TripViewProps> = ({ cycle, onEndTrip, onAddCheckpoint }
     }
   }, []);
 
-  const calculateRoute = useCallback(() => {
-    if (!destination.trim() || !directionsService.current || !directionsRenderer.current) {
-      alert('Por favor, informe um destino válido.');
+  const calculateRoute = useCallback((origin: any, dest: any) => {
+     if (!dest.trim() || !directionsService.current || !directionsRenderer.current) {
+      if (!isViewingTrip) alert('Por favor, informe um destino válido.');
       return;
     }
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const origin = {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-        };
-
-        directionsService.current.route(
-          {
-            origin: origin,
-            destination: destination,
-            travelMode: 'DRIVING',
-          },
-          (result: any, status: string) => {
+    directionsService.current.route(
+        { origin, destination: dest, travelMode: 'DRIVING' },
+        (result: any, status: string) => {
             if (status === 'OK') {
-              directionsRenderer.current.setDirections(result);
-              setRoute(result);
-              const leg = result.routes[0].legs[0];
-              setTripSummary({ distance: leg.distance.text, duration: leg.duration.text });
-              setNavigationState('calculated');
+                directionsRenderer.current.setDirections(result);
+                setRoute(result);
+                if(!isViewingTrip) {
+                    const leg = result.routes[0].legs[0];
+                    setTripSummary({ distance: leg.distance.text, duration: leg.duration.text });
+                    setNavigationState('calculated');
+                }
             } else {
-              alert('Não foi possível calcular a rota. Erro: ' + status);
+                if(!isViewingTrip) alert('Não foi possível calcular a rota. Erro: ' + status);
             }
-          }
-        );
-      },
-      (error) => {
-        alert('Não foi possível obter sua localização: ' + error.message);
-      }
+        }
     );
-  }, [destination]);
+  }, [isViewingTrip]);
+
+  const handleCalculateRouteClick = () => {
+     navigator.geolocation.getCurrentPosition(
+      (position) => {
+        calculateRoute({ lat: position.coords.latitude, lng: position.coords.longitude }, destination);
+      },
+      (error) => alert('Não foi possível obter sua localização: ' + error.message)
+    );
+  };
 
   const startNavigation = useCallback(() => {
     if (!route) return;
@@ -214,7 +173,7 @@ const TripView: React.FC<TripViewProps> = ({ cycle, onEndTrip, onAddCheckpoint }
     traveledDistanceRef.current = 0;
     lastPositionRef.current = null;
     const firstStep = route.routes[0].legs[0].steps[0];
-    setCurrentInstruction(firstStep.instructions.replace(/<[^>]*>/g, '')); // Remove HTML tags
+    setCurrentInstruction(firstStep.instructions.replace(/<[^>]*>/g, ''));
   }, [route]);
 
   useEffect(() => {
@@ -246,12 +205,9 @@ const TripView: React.FC<TripViewProps> = ({ cycle, onEndTrip, onAddCheckpoint }
             map: mapInstance.current,
             icon: {
               path: window.google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-              scale: 8,
-              rotation: position.coords.heading || 0,
-              fillColor: '#FFFFFF',
-              fillOpacity: 1,
-              strokeColor: '#FF6B00',
-              strokeWeight: 3,
+              scale: 8, rotation: position.coords.heading || 0,
+              fillColor: '#FFFFFF', fillOpacity: 1,
+              strokeColor: '#FF6B00', strokeWeight: 3,
             },
           });
         } else {
@@ -268,7 +224,6 @@ const TripView: React.FC<TripViewProps> = ({ cycle, onEndTrip, onAddCheckpoint }
           mapInstance.current.setZoom(18);
         }
 
-        // Check if user is close to the next step
         const currentLeg = route.routes[0].legs[0];
         const nextStep = currentLeg.steps[currentStepIndex.current];
         if (nextStep) {
@@ -320,9 +275,11 @@ const TripView: React.FC<TripViewProps> = ({ cycle, onEndTrip, onAddCheckpoint }
   }, []);
 
   const handleConfirmCheckpoint = () => {
-    // finalTraveledDistance is in meters, onAddCheckpoint expects km
-    if (finalTraveledDistance > 0) {
-        onAddCheckpoint(finalTraveledDistance / 1000, new Date().toISOString());
+    if (finalTraveledDistance > 0 && onAddCheckpoint && route) {
+        onAddCheckpoint(finalTraveledDistance / 1000, new Date().toISOString(), {
+            origin: route.request.origin,
+            destination: route.request.destination,
+        });
     }
     setIsConfirmModalOpen(false);
     onEndTrip();
@@ -332,102 +289,96 @@ const TripView: React.FC<TripViewProps> = ({ cycle, onEndTrip, onAddCheckpoint }
     setIsConfirmModalOpen(false);
     onEndTrip();
   };
+  
+  const backButtonLabel = isNavigating ? 'Sair da Navegação' : isViewingTrip ? 'Voltar para o Histórico' : 'Voltar para o Ciclo';
 
-  const renderPlanningContent = () => {
-    switch (navigationState) {
-      case 'planning':
-        return (
-          <div className="space-y-4">
-            <Input
-              ref={destinationInputRef}
-              label="Qual o seu destino?"
-              id="destination"
-              type="text"
-              value={destination}
-              onChange={(e) => setDestination(e.target.value)}
-              placeholder="Ex: Praia Grande, SP"
-            />
-            <Button onClick={calculateRoute} className="w-full">
-              Calcular Rota
-            </Button>
-          </div>
-        );
-      case 'calculated':
-        return (
-            <div className="space-y-4 text-center">
-                <div className="bg-[#0A0A0A] p-3 rounded-md border border-[#444]">
-                    <p className="text-lg">Resumo da Viagem</p>
-                    <p className="text-2xl font-bold text-[#FF6B00]">
-                        {tripSummary.distance} <span className="text-lg text-white">({tripSummary.duration})</span>
-                    </p>
-                </div>
-                <Button onClick={startNavigation} className="w-full">
-                    Iniciar Navegação
-                </Button>
-            </div>
-        );
-       case 'finished':
-         return (
-             <div className="text-center">
-                <p className="text-lg">Trajeto finalizado!</p>
-                <p className="text-sm text-[#888]">Aguardando confirmação para adicionar checkpoint...</p>
-             </div>
-         );
-      default:
-        return null;
-    }
-  };
+  if (isNavigating || isViewingTrip) {
+    return (
+        <div className="fixed inset-0 bg-[#0A0A0A] z-40">
+            <div ref={mapRef} className="h-full w-full"></div>
+
+            <button onClick={onEndTrip} className="absolute top-4 left-4 z-10 text-[#FF6B00] hover:text-[#ff852b] transition-colors flex items-center text-sm bg-[#141414]/80 p-2 rounded-lg border border-[#444] shadow-lg">
+                <ChevronLeftIcon className="w-5 h-5 mr-1" />
+                {backButtonLabel}
+            </button>
+            
+            {isNavigating && (
+                <>
+                    <button 
+                        onClick={handleRecenterMap}
+                        className="absolute top-4 right-4 z-10 bg-[#141414] bg-opacity-90 p-2 rounded-full shadow-lg border border-[#444] text-white hover:bg-[#2a2a2a]"
+                        title="Centralizar na sua posição"
+                    >
+                        <MyLocationIcon className="w-6 h-6" />
+                    </button>
+
+                    <div className="absolute bottom-0 left-0 right-0 z-10 p-4 space-y-3">
+                        <div className="bg-[#141414] bg-opacity-90 p-4 rounded-lg shadow-lg text-center border border-[#444]">
+                            <p className="text-lg font-semibold text-white min-h-[28px]" dangerouslySetInnerHTML={{ __html: currentInstruction || 'Iniciando navegação...' }}></p>
+                        </div>
+                        <Button onClick={finishTrip} variant="danger" className="w-full">
+                            Finalizar Trajeto
+                        </Button>
+                    </div>
+                </>
+            )}
+        </div>
+    );
+  }
 
   return (
     <>
-        <div className={`w-full transition-all duration-300 ${isNavigating ? 'h-[calc(100vh-120px)] md:h-[calc(100vh-150px)]' : 'max-w-2xl mx-auto'}`}>
-            <div className={`${isNavigating ? 'absolute top-4 left-4 z-20' : 'mb-4'}`}>
-                <button onClick={onEndTrip} className="text-[#FF6B00] hover:text-[#ff852b] transition-colors flex items-center text-sm bg-black/50 p-2 rounded-lg">
+        <div className="w-full max-w-2xl mx-auto">
+            <div className="mb-4">
+                <button onClick={onEndTrip} className="text-[#FF6B00] hover:text-[#ff852b] transition-colors flex items-center text-sm">
                     <ChevronLeftIcon className="w-5 h-5 mr-1" />
-                    {isNavigating ? 'Sair da Navegação' : 'Voltar para o Ciclo'}
+                    {backButtonLabel}
                 </button>
             </div>
 
-            <Card className={`w-full transition-all duration-300 ${isNavigating ? '!p-0 !bg-transparent !shadow-none !max-w-none h-full' : ''}`}>
-                <div className={`text-center ${isNavigating ? 'hidden' : ''}`}>
+            <Card className="w-full">
+                <div className="text-center">
                     <h2 className="text-2xl font-bold text-white mb-2">Planejador de Trajeto</h2>
-                    <p className="text-sm text-[#CFCFCF] mb-6">Ciclo: {cycle.name}</p>
+                    <p className="text-sm text-[#CFCFCF] mb-6">Ciclo: {cycle?.name}</p>
                 </div>
 
-                <div className={`relative ${isNavigating ? 'h-full w-full' : ''}`}>
-                    <div 
-                        ref={mapRef} 
-                        className={`transition-all duration-300 ${isNavigating 
-                            ? 'h-full w-full rounded-lg' 
-                            : 'my-4 aspect-video w-full rounded-lg'} 
-                            bg-[#0A0A0A] border border-[#444] overflow-hidden`}>
-                    </div>
-
-                    {isNavigating && (
-                        <>
-                           <button 
-                             onClick={handleRecenterMap}
-                             className="absolute top-4 right-4 z-10 bg-[#141414] bg-opacity-90 p-2 rounded-full shadow-lg border border-[#444] text-white hover:bg-[#2a2a2a]"
-                             title="Centralizar na sua posição"
-                           >
-                             <MyLocationIcon className="w-6 h-6" />
-                           </button>
-
-                           <div className="absolute bottom-4 left-4 right-4 z-10 space-y-3">
-                               <div className="bg-[#141414] bg-opacity-90 p-4 rounded-lg shadow-lg text-center border border-[#444]">
-                                   <p className="text-lg font-semibold text-white min-h-[28px]" dangerouslySetInnerHTML={{ __html: currentInstruction || 'Iniciando navegação...' }}></p>
-                               </div>
-                               <Button onClick={finishTrip} variant="danger" className="w-full">
-                                   Finalizar Trajeto
-                               </Button>
-                           </div>
-                        </>
-                    )}
-                </div>
+                <div ref={mapRef} className="my-4 aspect-video w-full rounded-lg bg-[#0A0A0A] border border-[#444] overflow-hidden"></div>
                 
-                <div className={isNavigating ? 'hidden' : ''}>
-                    {renderPlanningContent()}
-                </div>
+                {navigationState === 'planning' && (
+                    <div className="space-y-4">
+                        <Input
+                        ref={destinationInputRef}
+                        label="Qual o seu destino?"
+                        id="destination"
+                        type="text"
+                        value={destination}
+                        onChange={(e) => setDestination(e.target.value)}
+                        placeholder="Ex: Praia Grande, SP"
+                        />
+                        <Button onClick={handleCalculateRouteClick} className="w-full">
+                        Calcular Rota
+                        </Button>
+                    </div>
+                )}
+                {navigationState === 'calculated' && (
+                    <div className="space-y-4 text-center">
+                        <div className="bg-[#0A0A0A] p-3 rounded-md border border-[#444]">
+                            <p className="text-lg">Resumo da Viagem</p>
+                            <p className="text-2xl font-bold text-[#FF6B00]">
+                                {tripSummary.distance} <span className="text-lg text-white">({tripSummary.duration})</span>
+                            </p>
+                        </div>
+                        <Button onClick={startNavigation} className="w-full">
+                            Iniciar Navegação
+                        </Button>
+                    </div>
+                )}
+                {navigationState === 'finished' && (
+                    <div className="text-center">
+                        <p className="text-lg">Trajeto finalizado!</p>
+                        <p className="text-sm text-[#888]">Aguardando confirmação para adicionar checkpoint...</p>
+                    </div>
+                )}
             </Card>
         </div>
       

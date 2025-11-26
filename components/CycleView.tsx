@@ -14,6 +14,7 @@ interface CycleViewProps {
   onFinishCycle: () => void;
   onGoBack: () => void;
   onStartTrip: () => void;
+  onViewTrip: (event: HistoryEvent) => void;
   onStartEditEvent: (event: HistoryEvent) => void;
   eventToEdit: HistoryEvent | null;
   onCancelEditEvent: () => void;
@@ -25,8 +26,10 @@ const getCurrentDate = () => {
   return new Date().toISOString().split('T')[0];
 };
 
-const HistoryItem: React.FC<{ event: HistoryEvent; onEdit: (event: HistoryEvent) => void; onDelete: (event: HistoryEvent) => void; }> = ({ event, onEdit, onDelete }) => {
+const HistoryItem: React.FC<{ event: HistoryEvent; onEdit: (event: HistoryEvent) => void; onDelete: (event: HistoryEvent) => void; onViewTrip: (event: HistoryEvent) => void; }> = ({ event, onEdit, onDelete, onViewTrip }) => {
   const isEditable = event.type === 'checkpoint' || event.type === 'refuel';
+  const isViewable = event.type === 'trip';
+  const isClickable = isEditable || isViewable;
 
   const formatValue = (type: HistoryEvent['type'], value: number) => {
     switch (type) {
@@ -97,14 +100,19 @@ const HistoryItem: React.FC<{ event: HistoryEvent; onEdit: (event: HistoryEvent)
     });
   };
 
+  const handleClick = () => {
+    if (isEditable) onEdit(event);
+    else if (isViewable) onViewTrip(event);
+  };
+
   return (
     <div 
-      className={`group flex items-start space-x-4 py-3 border-b border-[#2a2a2a] last:border-b-0 ${isEditable ? 'hover:bg-[#1f1f1f] rounded-md -mx-2 px-2' : ''}`}
+      className={`group flex items-start space-x-4 py-3 border-b border-[#2a2a2a] last:border-b-0 ${isClickable ? 'hover:bg-[#1f1f1f] rounded-md -mx-2 px-2' : ''}`}
     >
       <div className="flex-shrink-0 mt-1">{getIcon()}</div>
       <div 
-        className={`flex-grow ${isEditable ? 'cursor-pointer' : ''}`}
-        onClick={isEditable ? () => onEdit(event) : undefined}
+        className={`flex-grow ${isClickable ? 'cursor-pointer' : ''}`}
+        onClick={handleClick}
       >
         <p className="text-white text-sm">{getDescription()}</p>
         <p className="text-xs text-[#888]">{formatHistoryDate(event.date)}</p>
@@ -118,6 +126,11 @@ const HistoryItem: React.FC<{ event: HistoryEvent; onEdit: (event: HistoryEvent)
                 <TrashIcon className="w-5 h-5" />
             </button>
         </div>
+      )}
+      {isViewable && (
+         <div className="flex-shrink-0 mt-1 flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <p className="text-xs text-[#FF6B00]">Ver Rota</p>
+         </div>
       )}
     </div>
   );
@@ -174,7 +187,7 @@ const EditEventModal: React.FC<{
     );
 }
 
-const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel, onUpdateConsumption, onFinishCycle, onGoBack, onStartTrip, onStartEditEvent, eventToEdit, onCancelEditEvent, onSaveEditEvent, onRequestDeleteEvent }) => {
+const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel, onUpdateConsumption, onFinishCycle, onGoBack, onStartTrip, onViewTrip, onStartEditEvent, eventToEdit, onCancelEditEvent, onSaveEditEvent, onRequestDeleteEvent }) => {
   const [isCheckpointModalOpen, setCheckpointModalOpen] = useState(false);
   const [isRefuelModalOpen, setRefuelModalOpen] = useState(false);
   const [isConsumptionModalOpen, setConsumptionModalOpen] = useState(false);
@@ -381,7 +394,7 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
           {cycle.history.length > 0 ? (
             <div className="space-y-2">
               {[...cycle.history].reverse().map((event) => (
-                <HistoryItem key={event.id} event={event} onEdit={onStartEditEvent} onDelete={onRequestDeleteEvent} />
+                <HistoryItem key={event.id} event={event} onEdit={onStartEditEvent} onDelete={onRequestDeleteEvent} onViewTrip={onViewTrip} />
               ))}
             </div>
           ) : (

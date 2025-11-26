@@ -1,6 +1,14 @@
 export type HistoryEvent =
-  | { id: string; type: 'start' | 'checkpoint' | 'consumption' | 'finish' | 'trip'; value: number; date: string; }
-  | { id: string; type: 'refuel'; value: number; date: string; pricePerLiter?: number; discount?: number; };
+  | { id: string; type: 'start' | 'checkpoint' | 'consumption' | 'finish'; value: number; date: string; }
+  | { id: string; type: 'refuel'; value: number; date: string; pricePerLiter?: number; discount?: number; }
+  | { 
+      id: string; 
+      type: 'trip'; 
+      value: number; 
+      date: string; 
+      origin?: any;
+      destination?: any;
+    };
 
 
 export interface Cycle {

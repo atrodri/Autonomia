@@ -58,6 +58,7 @@ const App: React.FC = () => {
   const [cycleToDeleteId, setCycleToDeleteId] = useState<string | null>(null);
   const [eventToEdit, setEventToEdit] = useState<HistoryEvent | null>(null);
   const [eventToDelete, setEventToDelete] = useState<HistoryEvent | null>(null);
+  const [tripToView, setTripToView] = useState<HistoryEvent | null>(null);
   
   const userCycles = currentUser ? cycles.filter(c => c.userId === currentUser.id) : [];
 
@@ -67,7 +68,7 @@ const App: React.FC = () => {
   const activeCycles = userCycles.filter(c => c.status === 'active');
   const finishedCycles = userCycles.filter(c => c.status === 'finished');
   
-  const isHomeScreen = !isCreating && !activeCycle && !reportCycle && !isTrackingTrip;
+  const isHomeScreen = !isCreating && !activeCycle && !reportCycle && !isTrackingTrip && !tripToView;
 
   const handleLogout = () => {
     setCurrentUser(null);
@@ -75,6 +76,7 @@ const App: React.FC = () => {
     setReportCycleId(null);
     setIsCreating(false);
     setIsTrackingTrip(false);
+    setTripToView(null);
     setAuthView('auth');
   };
   
@@ -107,6 +109,7 @@ const App: React.FC = () => {
     setActiveCycleId(null);
     setReportCycleId(null);
     setIsTrackingTrip(false);
+    setTripToView(null);
   };
   const handleCancelCreation = () => setIsCreating(false);
 
@@ -115,6 +118,7 @@ const App: React.FC = () => {
     setReportCycleId(null);
     setIsCreating(false);
     setIsTrackingTrip(false);
+    setTripToView(null);
   };
   
   const handleSelectReport = (id: string) => {
@@ -122,6 +126,7 @@ const App: React.FC = () => {
     setActiveCycleId(null);
     setIsCreating(false);
     setIsTrackingTrip(false);
+    setTripToView(null);
   };
 
   const handleGoHome = useCallback(() => {
@@ -129,6 +134,7 @@ const App: React.FC = () => {
     setReportCycleId(null);
     setIsCreating(false);
     setIsTrackingTrip(false);
+    setTripToView(null);
   }, []);
 
   const handleStartTrip = () => {
@@ -138,6 +144,16 @@ const App: React.FC = () => {
   const handleEndTrip = useCallback(() => {
     setIsTrackingTrip(false);
   }, []);
+
+  const handleViewTrip = (event: HistoryEvent) => {
+    if (event.type === 'trip') {
+      setTripToView(event);
+    }
+  };
+
+  const handleEndViewTrip = () => {
+    setTripToView(null);
+  };
 
   const generateUniqueId = () => new Date().toISOString() + Math.random().toString(36).substring(2, 9);
 
@@ -177,13 +193,20 @@ const App: React.FC = () => {
     });
   }, [activeCycleId, setCycles]);
   
-  const handleAddTripCheckpoint = useCallback((distance: number, date: string) => {
+  const handleAddTripCheckpoint = useCallback((distance: number, date: string, routeData: { origin: any, destination: any }) => {
     updateActiveCycle(cycle => {
       const newMileage = cycle.currentMileage + distance;
       return {
         ...cycle,
         currentMileage: newMileage,
-        history: [...cycle.history, { id: generateUniqueId(), type: 'trip', value: distance, date }],
+        history: [...cycle.history, { 
+          id: generateUniqueId(), 
+          type: 'trip', 
+          value: distance, 
+          date,
+          origin: routeData.origin,
+          destination: routeData.destination,
+        }],
       };
     });
   }, [activeCycleId, setCycles]);
@@ -325,6 +348,10 @@ const App: React.FC = () => {
     if (isCreating) {
       return <CycleForm onSubmit={handleCreateCycle} onCancel={handleCancelCreation} />;
     }
+
+    if (tripToView) {
+        return <TripView onEndTrip={handleEndViewTrip} tripToView={tripToView} />;
+    }
     
     if (isTrackingTrip && activeCycle) {
       return <TripView cycle={activeCycle} onEndTrip={handleEndTrip} onAddCheckpoint={handleAddTripCheckpoint} />;
@@ -344,6 +371,7 @@ const App: React.FC = () => {
           onFinishCycle={handleFinishCycle}
           onGoBack={handleGoHome}
           onStartTrip={handleStartTrip}
+          onViewTrip={handleViewTrip}
           onStartEditEvent={handleStartEditEvent}
           eventToEdit={eventToEdit}
           onCancelEditEvent={handleCancelEditEvent}
@@ -368,8 +396,8 @@ const App: React.FC = () => {
   
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-[#CFCFCF] flex flex-col">
-      <Header username={currentUser.username} onLogout={handleLogout} />
-      <main className={`container mx-auto p-4 md:p-6 flex-grow ${isHomeScreen ? 'flex items-center' : ''}`}>
+      {isTrackingTrip || tripToView ? null : <Header username={currentUser.username} onLogout={handleLogout} />}
+      <main className={`container mx-auto p-4 md:p-6 flex-grow ${isHomeScreen ? 'flex items-center' : ''} ${isTrackingTrip || tripToView ? '!p-0 !max-w-none' : ''}`}>
         {renderContent()}
       </main>
       <Modal isOpen={!!cycleToDelete} onClose={handleCancelDelete} title="Confirmar Exclusão">

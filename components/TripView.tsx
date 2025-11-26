@@ -156,7 +156,7 @@ const TripView: React.FC<TripViewProps> = ({ cycle, onEndTrip, onAddCheckpoint }
     if (window.google && window.google.maps && window.google.maps.places && destinationInputRef.current) {
       const autocomplete = new window.google.maps.places.Autocomplete(
         destinationInputRef.current,
-        { types: ['address'], componentRestrictions: { country: 'br' } }
+        { componentRestrictions: { country: 'br' } }
       );
       autocomplete.addListener('place_changed', () => {
         const place = autocomplete.getPlace();

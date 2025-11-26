@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import type { Cycle } from '../types';
 import { Button } from './ui/Button';
 import { Card } from './ui/Card';
-import { ChevronRightIcon, FileTextIcon } from './icons/Icons';
+import { ChevronRightIcon, FileTextIcon, TrashIcon } from './icons/Icons';
 
 interface HomeScreenProps {
   activeCycles: Cycle[];
@@ -10,10 +10,19 @@ interface HomeScreenProps {
   onNewCycleClick: () => void;
   onSelectCycle: (id: string) => void;
   onSelectReport: (id: string) => void;
+  onDeleteCycle: (id: string) => void;
 }
 
-const HomeScreen: React.FC<HomeScreenProps> = ({ activeCycles, finishedCycles, onNewCycleClick, onSelectCycle, onSelectReport }) => {
+const HomeScreen: React.FC<HomeScreenProps> = ({ activeCycles, finishedCycles, onNewCycleClick, onSelectCycle, onSelectReport, onDeleteCycle }) => {
   const numberFormatter = useMemo(() => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 }), []);
+
+  const formatDate = (dateStr: string) => {
+    return new Date(dateStr).toLocaleDateString('pt-BR', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric'
+    }).replace('.', '');
+  };
 
   return (
     <div className="flex flex-col items-center text-center w-full">
@@ -63,6 +72,9 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ activeCycles, finishedCycles, o
                     <Button variant="secondary" onClick={() => onSelectCycle(cycle.id)} className="!p-2" title="Ver Detalhes">
                         <ChevronRightIcon className="w-8 h-8 flex-shrink-0" />
                     </Button>
+                    <button onClick={() => onDeleteCycle(cycle.id)} className="text-gray-500 hover:text-red-500 transition-colors p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-[#141414]" title="Excluir Ciclo">
+                        <TrashIcon className="w-6 h-6" />
+                    </button>
                   </div>
                 </div>
               );
@@ -87,12 +99,17 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ activeCycles, finishedCycles, o
                 <div>
                   <h3 className="font-bold text-white text-lg">{cycle.name}</h3>
                   <p className="text-sm text-[#888]">
-                    Finalizado em {new Date(cycle.history[cycle.history.length - 1].date).toLocaleDateString('pt-BR')}
+                    Finalizado em {formatDate(cycle.history[cycle.history.length - 1].date)}
                   </p>
                 </div>
-                <Button variant="secondary" onClick={() => onSelectReport(cycle.id)} className="!p-2" title="Ver Relatório">
-                  <FileTextIcon className="w-8 h-8 flex-shrink-0" />
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button variant="secondary" onClick={() => onSelectReport(cycle.id)} className="!p-2" title="Ver Relatório">
+                    <FileTextIcon className="w-8 h-8 flex-shrink-0" />
+                    </Button>
+                    <button onClick={() => onDeleteCycle(cycle.id)} className="text-gray-500 hover:text-red-500 transition-colors p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-[#141414]" title="Excluir Ciclo">
+                        <TrashIcon className="w-6 h-6" />
+                    </button>
+                </div>
               </div>
             ))}
            </div>

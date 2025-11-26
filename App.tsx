@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import type { Cycle } from './types';
+import type { Cycle, HistoryEvent } from './types';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import CycleForm from './components/CycleForm';
 import CycleView from './components/CycleView';
@@ -7,6 +7,39 @@ import HomeScreen from './components/HomeScreen';
 import { Header } from './components/Header';
 import ReportView from './components/ReportView';
 import TripView from './components/TripView';
+import { Modal } from './components/ui/Modal';
+import { Button } from './components/ui/Button';
+
+const recalculateCycleStateFromHistory = (initialCycleState: Cycle, updatedHistory: HistoryEvent[]) => {
+  const sortedHistory = [...updatedHistory].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  let newCurrentMileage = initialCycleState.initialMileage;
+  let newFuelAmount = 0;
+  
+  for(const event of sortedHistory) {
+    if (event.type === 'start') continue;
+    
+    if (event.type === 'checkpoint') {
+      newCurrentMileage = event.value;
+    } else if (event.type === 'trip') {
+      const tripStartMileage = newCurrentMileage;
+      newCurrentMileage = tripStartMileage + event.value;
+    } else if (event.type === 'refuel') {
+      newFuelAmount += event.value;
+    }
+  }
+
+  const finishEvent = sortedHistory.find(e => e.type === 'finish');
+  if (finishEvent) {
+    newCurrentMileage = Math.max(newCurrentMileage, finishEvent.value);
+  }
+
+  return {
+    history: sortedHistory,
+    currentMileage: newCurrentMileage,
+    fuelAmount: newFuelAmount,
+  };
+};
 
 const App: React.FC = () => {
   const [cycles, setCycles] = useLocalStorage<Cycle[]>('autonomia-plus-cycles', []);
@@ -14,9 +47,13 @@ const App: React.FC = () => {
   const [reportCycleId, setReportCycleId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState<boolean>(false);
   const [isTrackingTrip, setIsTrackingTrip] = useState<boolean>(false);
+  const [cycleToDeleteId, setCycleToDeleteId] = useState<string | null>(null);
+  const [eventToEdit, setEventToEdit] = useState<HistoryEvent | null>(null);
+  const [eventToDelete, setEventToDelete] = useState<HistoryEvent | null>(null);
 
   const activeCycle = cycles.find(c => c.id === activeCycleId);
   const reportCycle = cycles.find(c => c.id === reportCycleId);
+  const cycleToDelete = cycles.find(c => c.id === cycleToDeleteId);
   const activeCycles = cycles.filter(c => c.status === 'active');
   const finishedCycles = cycles.filter(c => c.status === 'finished');
   
@@ -59,14 +96,16 @@ const App: React.FC = () => {
     setIsTrackingTrip(false);
   }, []);
 
+  const generateUniqueId = () => new Date().toISOString() + Math.random().toString(36).substring(2, 9);
+
   const handleCreateCycle = useCallback((cycleData: Omit<Cycle, 'id' | 'currentMileage' | 'history' | 'status' | 'fuelAmount' | 'consumption'>) => {
     const newCycle: Cycle = {
       ...cycleData,
-      id: new Date().toISOString() + Math.random().toString(36).substring(2, 9),
+      id: generateUniqueId(),
       currentMileage: cycleData.initialMileage,
       fuelAmount: 0,
       consumption: 0,
-      history: [{ type: 'start', value: cycleData.initialMileage, date: new Date(cycleData.startDate).toISOString() }],
+      history: [{ id: generateUniqueId(), type: 'start', value: cycleData.initialMileage, date: new Date(cycleData.startDate).toISOString() }],
       status: 'active',
     };
     setCycles(prev => [...prev, newCycle]);
@@ -88,7 +127,7 @@ const App: React.FC = () => {
       return {
         ...cycle,
         currentMileage: newMileage,
-        history: [...cycle.history, { type: 'checkpoint', value: newMileage, date }],
+        history: [...cycle.history, { id: generateUniqueId(), type: 'checkpoint', value: newMileage, date }],
       };
     });
   }, [activeCycleId, setCycles]);
@@ -99,7 +138,7 @@ const App: React.FC = () => {
       return {
         ...cycle,
         currentMileage: newMileage,
-        history: [...cycle.history, { type: 'trip', value: distance, date }],
+        history: [...cycle.history, { id: generateUniqueId(), type: 'trip', value: distance, date }],
       };
     });
   }, [activeCycleId, setCycles]);
@@ -110,6 +149,7 @@ const App: React.FC = () => {
       ...cycle,
       fuelAmount: cycle.fuelAmount + data.fuelAdded,
       history: [...cycle.history, { 
+        id: generateUniqueId(),
         type: 'refuel', 
         value: data.fuelAdded, 
         date: data.date, 
@@ -123,7 +163,7 @@ const App: React.FC = () => {
     updateActiveCycle(cycle => ({
       ...cycle,
       consumption: newConsumption,
-      history: [...cycle.history, { type: 'consumption', value: newConsumption, date }],
+      history: [...cycle.history, { id: generateUniqueId(), type: 'consumption', value: newConsumption, date }],
     }));
   }, [activeCycleId, setCycles]);
 
@@ -139,6 +179,7 @@ const App: React.FC = () => {
           history: [
             ...c.history,
             {
+              id: generateUniqueId(),
               type: 'finish' as 'finish',
               value: c.currentMileage,
               date: new Date().toISOString()
@@ -149,6 +190,72 @@ const App: React.FC = () => {
       return c;
     }));
   }, [activeCycleId, cycles, setCycles]);
+
+  const handleRequestDeleteCycle = (id: string) => {
+    setCycleToDeleteId(id);
+  };
+
+  const handleCancelDelete = () => {
+    setCycleToDeleteId(null);
+  };
+
+  const handleConfirmDelete = () => {
+    if (!cycleToDeleteId) return;
+    setCycles(prev => prev.filter(c => c.id !== cycleToDeleteId));
+    
+    if (activeCycleId === cycleToDeleteId) {
+      handleGoHome();
+    }
+    setCycleToDeleteId(null);
+  };
+
+  const handleStartEditEvent = (event: HistoryEvent) => {
+    setEventToEdit(event);
+  };
+
+  const handleCancelEditEvent = () => {
+    setEventToEdit(null);
+  };
+
+  const handleSaveEditEvent = (updatedEvent: HistoryEvent) => {
+    if (!activeCycleId || !eventToEdit) return;
+
+    updateActiveCycle(cycle => {
+      const updatedHistory = cycle.history.map(e => e.id === updatedEvent.id ? updatedEvent : e);
+      const recalculatedState = recalculateCycleStateFromHistory(cycle, updatedHistory);
+      
+      return {
+        ...cycle,
+        ...recalculatedState,
+      };
+    });
+
+    setEventToEdit(null);
+  };
+
+  const handleRequestDeleteEvent = (event: HistoryEvent) => {
+    setEventToDelete(event);
+  };
+
+  const handleCancelDeleteEvent = () => {
+    setEventToDelete(null);
+  };
+
+  const handleConfirmDeleteEvent = () => {
+    if (!activeCycleId || !eventToDelete) return;
+    
+    updateActiveCycle(cycle => {
+        const updatedHistory = cycle.history.filter(e => e.id !== eventToDelete.id);
+        const recalculatedState = recalculateCycleStateFromHistory(cycle, updatedHistory);
+
+        return {
+            ...cycle,
+            ...recalculatedState,
+        };
+    });
+
+    setEventToDelete(null);
+  };
 
   const renderContent = () => {
     if (isCreating) {
@@ -173,6 +280,11 @@ const App: React.FC = () => {
           onFinishCycle={handleFinishCycle}
           onGoBack={handleGoHome}
           onStartTrip={handleStartTrip}
+          onStartEditEvent={handleStartEditEvent}
+          eventToEdit={eventToEdit}
+          onCancelEditEvent={handleCancelEditEvent}
+          onSaveEditEvent={handleSaveEditEvent}
+          onRequestDeleteEvent={handleRequestDeleteEvent}
         />
       );
     }
@@ -184,6 +296,7 @@ const App: React.FC = () => {
         onNewCycleClick={handleStartCreation}
         onSelectCycle={handleSelectCycle}
         onSelectReport={handleSelectReport}
+        onDeleteCycle={handleRequestDeleteCycle}
       />
     );
   };
@@ -194,6 +307,31 @@ const App: React.FC = () => {
       <main className={`container mx-auto p-4 md:p-6 flex-grow ${isHomeScreen ? 'flex items-center' : ''}`}>
         {renderContent()}
       </main>
+      <Modal isOpen={!!cycleToDelete} onClose={handleCancelDelete} title="Confirmar Exclusão">
+        {cycleToDelete && (
+          <div className="space-y-4">
+            <p>Você tem certeza que deseja excluir o ciclo "{cycleToDelete.name}"?</p>
+            <p className="text-sm text-[#888]">Esta ação é permanente e não poderá ser desfeita.</p>
+            <div className="pt-2 flex gap-4 flex-col-reverse sm:flex-row">
+              <Button variant="secondary" onClick={handleCancelDelete} className="w-full">Cancelar</Button>
+              <Button variant="danger" onClick={handleConfirmDelete} className="w-full">Excluir</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal isOpen={!!eventToDelete} onClose={handleCancelDeleteEvent} title="Confirmar Exclusão">
+        {eventToDelete && (
+          <div className="space-y-4">
+            <p>Você tem certeza que deseja excluir este evento?</p>
+            <p className="text-sm text-[#888]">Esta ação recalculará o estado do ciclo e não poderá ser desfeita.</p>
+            <div className="pt-2 flex gap-4 flex-col-reverse sm:flex-row">
+              <Button variant="secondary" onClick={handleCancelDeleteEvent} className="w-full">Cancelar</Button>
+              <Button variant="danger" onClick={handleConfirmDeleteEvent} className="w-full">Excluir</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };

@@ -51,6 +51,16 @@ const ReportView: React.FC<ReportViewProps> = ({ cycle, onGoBack }) => {
     costPerKm,
     finalConsumption,
   } = reportData;
+  
+  const formatDate = (date: Date, isUtc: boolean = false) => {
+    const options: Intl.DateTimeFormatOptions = {
+        day: 'numeric', month: 'short', year: 'numeric'
+    };
+    if (isUtc) {
+        options.timeZone = 'UTC';
+    }
+    return date.toLocaleDateString('pt-BR', options).replace('.', '');
+  };
 
   const numberFormatter = (value: number, options: Intl.NumberFormatOptions = {}) => 
     new Intl.NumberFormat('pt-BR', options).format(value);
@@ -83,7 +93,7 @@ const ReportView: React.FC<ReportViewProps> = ({ cycle, onGoBack }) => {
               <div>
                 <p className="text-sm text-[#CFCFCF] uppercase tracking-wider">Período</p>
                 <p className="text-lg font-semibold text-white">
-                  {startDate.toLocaleDateString('pt-BR', {timeZone: 'UTC'})} - {lastEventDate.toLocaleDateString('pt-BR')}
+                  {formatDate(startDate, true)} - {formatDate(lastEventDate)}
                 </p>
               </div>
               <div>

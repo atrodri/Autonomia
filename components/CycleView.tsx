@@ -1,10 +1,10 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import type { Cycle, HistoryEvent } from '../types';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { Modal } from './ui/Modal';
-import { CheckpointIcon, FuelIcon, CarIcon, ChevronLeftIcon, FlagIcon, FinishFlagIcon, RouteIcon } from './icons/Icons';
+import { CheckpointIcon, FuelIcon, CarIcon, ChevronLeftIcon, FlagIcon, FinishFlagIcon, RouteIcon, EditIcon, TrashIcon } from './icons/Icons';
 
 interface CycleViewProps {
   cycle: Cycle;
@@ -14,6 +14,11 @@ interface CycleViewProps {
   onFinishCycle: () => void;
   onGoBack: () => void;
   onStartTrip: () => void;
+  onStartEditEvent: (event: HistoryEvent) => void;
+  eventToEdit: HistoryEvent | null;
+  onCancelEditEvent: () => void;
+  onSaveEditEvent: (event: HistoryEvent) => void;
+  onRequestDeleteEvent: (event: HistoryEvent) => void;
 }
 
 const getCurrentDateTimeLocal = () => {
@@ -22,7 +27,9 @@ const getCurrentDateTimeLocal = () => {
   return now.toISOString().slice(0, 16);
 };
 
-const HistoryItem: React.FC<{ event: HistoryEvent }> = ({ event }) => {
+const HistoryItem: React.FC<{ event: HistoryEvent; onEdit: (event: HistoryEvent) => void; onDelete: (event: HistoryEvent) => void; }> = ({ event, onEdit, onDelete }) => {
+  const isEditable = event.type === 'checkpoint' || event.type === 'refuel';
+
   const formatValue = (type: HistoryEvent['type'], value: number) => {
     switch (type) {
       case 'start':
@@ -82,20 +89,95 @@ const HistoryItem: React.FC<{ event: HistoryEvent }> = ({ event }) => {
         return null;
     }
   };
+  
+  const formatHistoryDate = (dateString: string) => {
+    return new Date(dateString).toLocaleString('pt-BR', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    }).replace('.', '');
+  };
 
   return (
-    <div className="flex items-start space-x-4 py-3 border-b border-[#2a2a2a] last:border-b-0">
+    <div 
+      className={`group flex items-start space-x-4 py-3 border-b border-[#2a2a2a] last:border-b-0 ${isEditable ? 'hover:bg-[#1f1f1f] rounded-md -mx-2 px-2' : ''}`}
+    >
       <div className="flex-shrink-0 mt-1">{getIcon()}</div>
-      <div className="flex-grow">
+      <div 
+        className={`flex-grow ${isEditable ? 'cursor-pointer' : ''}`}
+        onClick={isEditable ? () => onEdit(event) : undefined}
+      >
         <p className="text-white text-sm">{getDescription()}</p>
-        <p className="text-xs text-[#888]">{new Date(event.date).toLocaleString('pt-BR')}</p>
+        <p className="text-xs text-[#888]">{formatHistoryDate(event.date)}</p>
       </div>
+      {isEditable && (
+        <div className="flex-shrink-0 mt-1 flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={() => onEdit(event)} title="Editar Evento" className="text-gray-400 hover:text-white">
+                <EditIcon className="w-5 h-5" />
+            </button>
+            <button onClick={() => onDelete(event)} title="Excluir Evento" className="text-gray-400 hover:text-red-500">
+                <TrashIcon className="w-5 h-5" />
+            </button>
+        </div>
+      )}
     </div>
   );
 };
 
+const EditEventModal: React.FC<{
+    event: HistoryEvent;
+    onClose: () => void;
+    onSave: (event: HistoryEvent) => void;
+}> = ({ event, onClose, onSave }) => {
+    const [date, setDate] = useState(new Date(event.date).toISOString().slice(0, 16));
+    const [value, setValue] = useState(event.value.toString());
+    const [price, setPrice] = useState(event.type === 'refuel' ? (event.pricePerLiter || '').toString() : '');
+    const [discount, setDiscount] = useState(event.type === 'refuel' ? (event.discount || '').toString() : '');
+    
+    const handleSave = () => {
+        if (event.type === 'checkpoint') {
+            onSave({ 
+                ...event, 
+                date: new Date(date).toISOString(), 
+                value: parseFloat(value) 
+            });
+        } else if (event.type === 'refuel') {
+            onSave({ 
+                ...event, 
+                date: new Date(date).toISOString(),
+                value: parseFloat(value), 
+                pricePerLiter: price ? parseFloat(price) : undefined,
+                discount: discount ? parseFloat(discount) : undefined
+            });
+        }
+    };
+    
+    return (
+        <Modal isOpen={!!event} onClose={onClose} title={`Editar ${event.type === 'checkpoint' ? 'Checkpoint' : 'Abastecimento'}`}>
+            <div className="space-y-4">
+                <Input id="edit-date" label="Data e Hora" type="datetime-local" value={date} onChange={e => setDate(e.target.value)} />
+                {event.type === 'checkpoint' && (
+                    <Input id="edit-checkpoint-value" label="Quilometragem (km)" type="number" value={value} onChange={e => setValue(e.target.value)} />
+                )}
+                {event.type === 'refuel' && (
+                    <>
+                        <Input id="edit-refuel-value" label="Combustível (litros)" type="number" value={value} onChange={e => setValue(e.target.value)} />
+                        <Input id="edit-price" label="Preço por Litro (R$)" type="number" value={price} onChange={e => setPrice(e.target.value)} />
+                        <Input id="edit-discount" label="Desconto (R$)" type="number" value={discount} onChange={e => setDiscount(e.target.value)} />
+                    </>
+                )}
+                <div className="pt-2 flex gap-4">
+                    <Button variant="secondary" onClick={onClose} className="w-full">Cancelar</Button>
+                    <Button onClick={handleSave} className="w-full">Salvar</Button>
+                </div>
+            </div>
+        </Modal>
+    );
+}
 
-const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel, onUpdateConsumption, onFinishCycle, onGoBack, onStartTrip }) => {
+const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel, onUpdateConsumption, onFinishCycle, onGoBack, onStartTrip, onStartEditEvent, eventToEdit, onCancelEditEvent, onSaveEditEvent, onRequestDeleteEvent }) => {
   const [isCheckpointModalOpen, setCheckpointModalOpen] = useState(false);
   const [isRefuelModalOpen, setRefuelModalOpen] = useState(false);
   const [isConsumptionModalOpen, setConsumptionModalOpen] = useState(false);
@@ -119,10 +201,15 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
     if (!isReadyForAutonomy) {
       return { maxReachableKm: cycle.currentMileage, remainingKm: 0 };
     }
-    const drivenKm = cycle.currentMileage - cycle.initialMileage;
-    const totalAutonomy = cycle.fuelAmount * cycle.consumption;
-    const remainingKm = Math.max(0, totalAutonomy - drivenKm);
-    const maxReachableKm = cycle.initialMileage + totalAutonomy;
+    const drivenSinceStart = cycle.currentMileage - cycle.initialMileage;
+    let fuelConsumed = 0;
+    if (cycle.consumption > 0) {
+        fuelConsumed = drivenSinceStart / cycle.consumption;
+    }
+    const remainingFuel = Math.max(0, cycle.fuelAmount - fuelConsumed);
+    const remainingKm = remainingFuel * cycle.consumption;
+    const maxReachableKm = cycle.currentMileage + remainingKm;
+
     return { maxReachableKm, remainingKm };
   }, [cycle, isReadyForAutonomy]);
 
@@ -188,6 +275,15 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
     setConsumptionModalOpen(true);
   }
 
+  const formatDateAbbreviated = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('pt-BR', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      timeZone: 'UTC'
+    }).replace('.', '');
+  };
+
   return (
     <>
       <div className="w-full max-w-2xl mx-auto mb-4">
@@ -200,7 +296,7 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
         <div className="text-center">
           <h2 className="text-2xl font-bold text-white">{cycle.name}</h2>
           <p className="text-sm text-[#CFCFCF] mb-6">
-            Iniciado em: {new Date(cycle.startDate).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}
+            Iniciado em: {formatDateAbbreviated(cycle.startDate)}
           </p>
 
           {isReadyForAutonomy ? (
@@ -216,11 +312,11 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center mb-8">
                 <div>
                   <p className="text-sm text-[#CFCFCF] uppercase tracking-wider">KM Atual</p>
-                  <p className="text-xl font-semibold text-white">{numberFormatter.format(cycle.currentMileage)}</p>
+                  <p className="text-xl font-semibold text-white">{numberFormatter.format(cycle.currentMileage)} km</p>
                 </div>
                 <div>
                   <p className="text-sm text-[#CFCFCF] uppercase tracking-wider">Autonomia Máx.</p>
-                  <p className="text-xl font-semibold text-white">{numberFormatter.format(maxReachableKm)}</p>
+                  <p className="text-xl font-semibold text-white">{numberFormatter.format(maxReachableKm)} km</p>
                 </div>
                 <div>
                   <p className="text-sm text-[#CFCFCF] uppercase tracking-wider">Consumo</p>
@@ -283,8 +379,8 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
         <Card className="w-full !p-4 md:!p-6">
           {cycle.history.length > 0 ? (
             <div className="space-y-2">
-              {[...cycle.history].reverse().map((event, index) => (
-                <HistoryItem key={`${event.date}-${index}`} event={event} />
+              {[...cycle.history].reverse().map((event) => (
+                <HistoryItem key={event.id} event={event} onEdit={onStartEditEvent} onDelete={onRequestDeleteEvent} />
               ))}
             </div>
           ) : (
@@ -404,6 +500,13 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
         </div>
       </Modal>
 
+      {eventToEdit && (
+        <EditEventModal
+            event={eventToEdit}
+            onClose={onCancelEditEvent}
+            onSave={onSaveEditEvent}
+        />
+      )}
     </>
   );
 };

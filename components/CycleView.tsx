@@ -13,8 +13,8 @@ interface CycleViewProps {
   onUpdateConsumption: (newConsumption: number, date: string) => void;
   onFinishCycle: () => void;
   onGoBack: () => void;
-  onStartTrip: () => void;
-  onViewTrip: (event: HistoryEvent) => void;
+  onStartRoute: () => void;
+  onViewRoute: (event: HistoryEvent) => void;
   onStartEditEvent: (event: HistoryEvent) => void;
   eventToEdit: HistoryEvent | null;
   onCancelEditEvent: () => void;
@@ -26,9 +26,21 @@ const getCurrentDate = () => {
   return new Date().toISOString().split('T')[0];
 };
 
-const HistoryItem: React.FC<{ event: HistoryEvent; onEdit: (event: HistoryEvent) => void; onDelete: (event: HistoryEvent) => void; onViewTrip: (event: HistoryEvent) => void; }> = ({ event, onEdit, onDelete, onViewTrip }) => {
+const formatKilometerInput = (value: string): string => {
+  if (!value) return '';
+  const numericValue = value.replace(/\D/g, '');
+  if (!numericValue) return '';
+  return new Intl.NumberFormat('pt-BR').format(parseInt(numericValue, 10));
+};
+
+const parseKilometerInput = (formattedValue: string): number => {
+  if (!formattedValue) return 0;
+  return parseInt(formattedValue.replace(/\./g, ''), 10);
+};
+
+const HistoryItem: React.FC<{ event: HistoryEvent; onEdit: (event: HistoryEvent) => void; onDelete: (event: HistoryEvent) => void; onViewRoute: (event: HistoryEvent) => void; }> = ({ event, onEdit, onDelete, onViewRoute }) => {
   const isEditable = event.type === 'checkpoint' || event.type === 'refuel';
-  const isViewable = event.type === 'trip';
+  const isViewable = event.type === 'route';
   const isClickable = isEditable || isViewable;
 
   const formatValue = (type: HistoryEvent['type'], value: number) => {
@@ -41,7 +53,7 @@ const HistoryItem: React.FC<{ event: HistoryEvent; onEdit: (event: HistoryEvent)
         return `${value.toLocaleString('pt-BR')} L`;
       case 'consumption':
         return `${value.toLocaleString('pt-BR')} km/L`;
-      case 'trip':
+      case 'route':
         return `+${value.toLocaleString('pt-BR', {maximumFractionDigits: 1})} km`;
     }
   };
@@ -65,8 +77,8 @@ const HistoryItem: React.FC<{ event: HistoryEvent; onEdit: (event: HistoryEvent)
         return `Consumo atualizado para ${formatValue(event.type, event.value)}`;
       case 'finish':
         return `Ciclo finalizado em ${formatValue(event.type, event.value)}`;
-      case 'trip':
-        return `Trajeto concluído: ${formatValue(event.type, event.value)}`;
+      case 'route':
+        return `Rota concluída: ${formatValue(event.type, event.value)}`;
       default:
         return '';
     }
@@ -78,7 +90,7 @@ const HistoryItem: React.FC<{ event: HistoryEvent; onEdit: (event: HistoryEvent)
         return <FlagIcon className="w-8 h-8 text-[#FF6B00]" />;
       case 'checkpoint':
         return <CheckpointIcon className="w-8 h-8 text-blue-400" />;
-      case 'trip':
+      case 'route':
         return <RouteIcon className="w-8 h-8 text-cyan-400" />;
       case 'refuel':
         return <FuelIcon className="w-8 h-8 text-green-400" />;
@@ -102,7 +114,7 @@ const HistoryItem: React.FC<{ event: HistoryEvent; onEdit: (event: HistoryEvent)
 
   const handleClick = () => {
     if (isEditable) onEdit(event);
-    else if (isViewable) onViewTrip(event);
+    else if (isViewable) onViewRoute(event);
   };
 
   return (
@@ -141,17 +153,32 @@ const EditEventModal: React.FC<{
     onClose: () => void;
     onSave: (event: HistoryEvent) => void;
 }> = ({ event, onClose, onSave }) => {
-    const [date, setDate] = useState(new Date(event.date).toISOString().split('T')[0]);
-    const [value, setValue] = useState(event.value.toString());
-    const [price, setPrice] = useState(event.type === 'refuel' ? (event.pricePerLiter || '').toString() : '');
-    const [discount, setDiscount] = useState(event.type === 'refuel' ? (event.discount || '').toString() : '');
+    const [date, setDate] = useState('');
+    const [value, setValue] = useState('');
+    const [price, setPrice] = useState('');
+    const [discount, setDiscount] = useState('');
+
+    useEffect(() => {
+        if (event) {
+            setDate(new Date(event.date).toISOString().split('T')[0]);
+            if (event.type === 'checkpoint') {
+                setValue(formatKilometerInput(event.value.toString()));
+            } else {
+                setValue(event.value.toString());
+            }
+            if (event.type === 'refuel') {
+                setPrice((event.pricePerLiter || '').toString());
+                setDiscount((event.discount || '').toString());
+            }
+        }
+    }, [event]);
     
     const handleSave = () => {
         if (event.type === 'checkpoint') {
             onSave({ 
                 ...event, 
                 date: new Date(date).toISOString(), 
-                value: parseFloat(value) 
+                value: parseKilometerInput(value) 
             });
         } else if (event.type === 'refuel') {
             onSave({ 
@@ -169,7 +196,7 @@ const EditEventModal: React.FC<{
             <div className="space-y-4">
                 <Input id="edit-date" label="Data" type="date" value={date} onChange={e => setDate(e.target.value)} />
                 {event.type === 'checkpoint' && (
-                    <Input id="edit-checkpoint-value" label="Quilometragem (km)" type="number" value={value} onChange={e => setValue(e.target.value)} />
+                    <Input id="edit-checkpoint-value" label="Quilometragem (km)" type="text" inputMode="numeric" value={value} onChange={e => setValue(formatKilometerInput(e.target.value))} />
                 )}
                 {event.type === 'refuel' && (
                     <>
@@ -187,7 +214,7 @@ const EditEventModal: React.FC<{
     );
 }
 
-const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel, onUpdateConsumption, onFinishCycle, onGoBack, onStartTrip, onViewTrip, onStartEditEvent, eventToEdit, onCancelEditEvent, onSaveEditEvent, onRequestDeleteEvent }) => {
+const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel, onUpdateConsumption, onFinishCycle, onGoBack, onStartRoute, onViewRoute, onStartEditEvent, eventToEdit, onCancelEditEvent, onSaveEditEvent, onRequestDeleteEvent }) => {
   const [isCheckpointModalOpen, setCheckpointModalOpen] = useState(false);
   const [isRefuelModalOpen, setRefuelModalOpen] = useState(false);
   const [isConsumptionModalOpen, setConsumptionModalOpen] = useState(false);
@@ -224,9 +251,11 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
   }, [cycle, isReadyForAutonomy]);
 
   const numberFormatter = useMemo(() => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 }), []);
+  const kmIntegerFormatter = useMemo(() => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 }), []);
+
 
   const handleCheckpointSubmit = () => {
-    const mileage = parseFloat(newMileage);
+    const mileage = parseKilometerInput(newMileage);
     if (!isNaN(mileage) && mileage > cycle.currentMileage) {
       onAddCheckpoint(mileage, new Date(checkpointDate).toISOString());
       setNewMileage('');
@@ -314,7 +343,7 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
               <div className="mb-8">
                 <p className="text-lg text-[#CFCFCF]">Quilometragem Restante</p>
                 <p className="text-6xl font-bold text-[#FF6B00] tracking-tight">
-                  {numberFormatter.format(remainingKm)}
+                  {kmIntegerFormatter.format(remainingKm)}
                   <span className="text-2xl font-normal ml-2">km</span>
                 </p>
               </div>
@@ -322,11 +351,11 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
               <div className="grid grid-cols-2 sm:grid-cols-2 gap-6 text-center mb-8">
                 <div>
                   <p className="text-sm text-[#CFCFCF] uppercase tracking-wider">KM Atual</p>
-                  <p className="text-xl font-semibold text-white">{numberFormatter.format(cycle.currentMileage)} km</p>
+                  <p className="text-xl font-semibold text-white">{kmIntegerFormatter.format(cycle.currentMileage)} km</p>
                 </div>
                 <div>
                   <p className="text-sm text-[#CFCFCF] uppercase tracking-wider">Autonomia Máx.</p>
-                  <p className="text-xl font-semibold text-white">{numberFormatter.format(maxReachableKm)} km</p>
+                  <p className="text-xl font-semibold text-white">{kmIntegerFormatter.format(maxReachableKm)} km</p>
                 </div>
                 <div>
                   <p className="text-sm text-[#CFCFCF] uppercase tracking-wider">Saldo Combustível</p>
@@ -342,16 +371,16 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
              <div className="my-8 p-6 bg-[#0A0A0A] border border-dashed border-[#444] rounded-lg text-center">
               <h3 className="text-lg font-semibold text-[#FF6B00]">Vamos começar!</h3>
               <p className="mt-2 text-[#CFCFCF]">
-                Para calcular a autonomia, precisamos de mais algumas informações.
+                Para calcular la autonomia, precisamos de mais algumas informações.
               </p>
-              <div className="mt-4 text-left inline-block space-y-2">
+              <ul className="mt-4 text-left inline-block space-y-2 list-disc list-inside">
                 {cycle.fuelAmount <= 0 && (
-                  <p className="text-sm">1. Use o botão <strong>Abastecer</strong> para registrar seu primeiro abastecimento.</p>
+                  <li className="text-sm">Use o botão <strong>Abastecer</strong> para registrar seu primeiro abastecimento.</li>
                 )}
                 {cycle.consumption <= 0 && (
-                   <p className="text-sm">2. Use o botão <strong>Atualizar Consumo</strong> para informar o consumo do veículo.</p>
+                   <li className="text-sm">Use o botão <strong>Atualizar Consumo</strong> para informar o consumo do veículo.</li>
                 )}
-              </div>
+              </ul>
             </div>
           )}
 
@@ -369,9 +398,9 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
               <CarIcon className="w-8 h-8 mr-2 flex-shrink-0" />
               Atualizar Consumo
             </Button>
-            <Button variant="secondary" onClick={onStartTrip} disabled={isFinished}>
+            <Button variant="secondary" onClick={onStartRoute} disabled={isFinished}>
               <RouteIcon className="w-8 h-8 mr-2 flex-shrink-0" />
-              Iniciar Trajeto
+              Iniciar Rota
             </Button>
           </div>
 
@@ -394,7 +423,7 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
           {cycle.history.length > 0 ? (
             <div className="space-y-2">
               {[...cycle.history].reverse().map((event) => (
-                <HistoryItem key={event.id} event={event} onEdit={onStartEditEvent} onDelete={onRequestDeleteEvent} onViewTrip={onViewTrip} />
+                <HistoryItem key={event.id} event={event} onEdit={onStartEditEvent} onDelete={onRequestDeleteEvent} onViewRoute={onViewRoute} />
               ))}
             </div>
           ) : (
@@ -415,12 +444,11 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
           <Input
             label="Nova Quilometragem (km)"
             id="newMileage"
-            type="number"
-            step="0.1"
-            min={cycle.currentMileage + 0.1}
+            type="text"
+            inputMode="numeric"
             value={newMileage}
-            onChange={(e) => setNewMileage(e.target.value)}
-            placeholder={`Maior que ${numberFormatter.format(cycle.currentMileage)}`}
+            onChange={(e) => setNewMileage(formatKilometerInput(e.target.value))}
+            placeholder={`Maior que ${cycle.currentMileage.toLocaleString('pt-BR')}`}
           />
           <div className="pt-2 flex gap-4">
             <Button variant="secondary" onClick={() => setCheckpointModalOpen(false)} className="w-full">Cancelar</Button>

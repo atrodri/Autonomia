@@ -3,7 +3,7 @@ export type HistoryEvent =
   | { id: string; type: 'refuel'; value: number; date: string; pricePerLiter?: number; discount?: number; }
   | { 
       id: string; 
-      type: 'trip'; 
+      type: 'route'; 
       value: number; 
       date: string; 
       origin?: any;
@@ -13,7 +13,6 @@ export type HistoryEvent =
 
 export interface Cycle {
   id: string;
-  userId: string;
   name: string;
   startDate: string;
   initialMileage: number;
@@ -24,13 +23,12 @@ export interface Cycle {
   status: 'active' | 'finished';
 }
 
+// FIX: Export the 'User' type, which was missing, causing an import error in RegisterView.tsx.
 export interface User {
   id: string;
   fullName: string;
   username: string;
   email: string;
-  password; // In a real app, this would be a hash.
+  password: string;
   confirmed: boolean;
 }
-
-export type AuthView = 'auth' | 'login' | 'register';

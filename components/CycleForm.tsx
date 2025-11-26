@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import type { Cycle } from '../types';
 import { Card } from './ui/Card';
@@ -5,25 +6,40 @@ import { Input } from './ui/Input';
 import { Button } from './ui/Button';
 
 interface CycleFormProps {
-  onSubmit: (cycleData: Omit<Cycle, 'id' | 'currentMileage' | 'history' | 'status' | 'fuelAmount' | 'consumption'>) => void;
+  onSubmit: (cycleData: Omit<Cycle, 'id' | 'currentMileage' | 'history' | 'status' | 'fuelAmount' | 'consumption'> & { initialFuel?: number }) => void;
   onCancel: () => void;
 }
+
+const formatKilometerInput = (value: string): string => {
+  if (!value) return '';
+  const numericValue = value.replace(/\D/g, '');
+  if (!numericValue) return '';
+  return new Intl.NumberFormat('pt-BR').format(parseInt(numericValue, 10));
+};
+
+const parseKilometerInput = (formattedValue: string): number => {
+  if (!formattedValue) return 0;
+  return parseInt(formattedValue.replace(/\./g, ''), 10);
+};
 
 const CycleForm: React.FC<CycleFormProps> = ({ onSubmit, onCancel }) => {
   const [name, setName] = useState('');
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
   const [initialMileage, setInitialMileage] = useState('');
+  const [initialFuel, setInitialFuel] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !startDate || !initialMileage) {
-        alert('Por favor, preencha todos os campos.');
+    const parsedMileage = parseKilometerInput(initialMileage);
+    if (!name || !startDate || isNaN(parsedMileage) || parsedMileage <= 0) {
+        alert('Por favor, preencha todos os campos obrigatórios com valores válidos.');
         return;
     }
     onSubmit({
       name,
       startDate,
-      initialMileage: parseFloat(initialMileage),
+      initialMileage: parsedMileage,
+      initialFuel: initialFuel ? parseFloat(initialFuel) : undefined,
     });
   };
 
@@ -38,6 +54,7 @@ const CycleForm: React.FC<CycleFormProps> = ({ onSubmit, onCancel }) => {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Ex: Viagem para a praia"
+          required
         />
         <Input
           label="Data de Início"
@@ -45,16 +62,27 @@ const CycleForm: React.FC<CycleFormProps> = ({ onSubmit, onCancel }) => {
           type="date"
           value={startDate}
           onChange={(e) => setStartDate(e.target.value)}
+          required
         />
         <Input
           label="Quilometragem Inicial (km)"
           id="initialMileage"
+          type="text"
+          inputMode="numeric"
+          value={initialMileage}
+          onChange={(e) => setInitialMileage(formatKilometerInput(e.target.value))}
+          placeholder="Ex: 50.000"
+          required
+        />
+        <Input
+          label="Combustível Inicial no Tanque (L, opcional)"
+          id="initialFuel"
           type="number"
           step="0.1"
           min="0"
-          value={initialMileage}
-          onChange={(e) => setInitialMileage(e.target.value)}
-          placeholder="Ex: 50000"
+          value={initialFuel}
+          onChange={(e) => setInitialFuel(e.target.value)}
+          placeholder="Ex: 15.5"
         />
         <div className="pt-4 flex flex-col-reverse sm:flex-row gap-4">
           <Button type="button" variant="secondary" onClick={onCancel} className="w-full">

@@ -428,10 +428,9 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
       <div className="w-full mt-8">
         <h3 className="text-lg font-semibold text-white mb-4 text-center">Histórico do Ciclo</h3>
         <Card className="w-full !p-4 md:!p-6">
-          {cycle.history.length > 1 ? ( // > 1 para ignorar o evento 'start'
+          {cycle.history.length > 0 ? (
             <div className="space-y-2">
               {[...cycle.history].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((event) => {
-                if (event.type === 'start') return null;
                 return <HistoryItem key={event.id} event={event} onEdit={onStartEditEvent} onDelete={onRequestDeleteEvent} onViewRoute={onViewRoute} />
               })}
             </div>

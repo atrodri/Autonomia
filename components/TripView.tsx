@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { Cycle, HistoryEvent } from '../types';
 import { Button } from './ui/Button';
@@ -87,6 +88,9 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
                 { featureType: "water", elementType: "geometry", stylers: [{ color: "#17263c" }] },
             ],
         });
+
+        const trafficLayer = new window.google.maps.TrafficLayer();
+        trafficLayer.setMap(mapInstance.current);
 
         mapInstance.current.addListener('dragstart', () => {
             if (phase === 'navigating') setIsFollowingUser(false);

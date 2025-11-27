@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 import { db } from '../firebase';
 
@@ -42,6 +43,10 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
             { featureType: "water", elementType: "geometry", stylers: [{ color: "#17263c" }] },
           ],
         });
+
+        const trafficLayer = new window.google.maps.TrafficLayer();
+        trafficLayer.setMap(mapInstance.current);
+
         directionsRenderer.current = new window.google.maps.DirectionsRenderer({
             polylineOptions: { strokeColor: '#FFEB3B', strokeWeight: 6, strokeOpacity: 0.9 },
             suppressMarkers: true,

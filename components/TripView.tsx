@@ -41,7 +41,7 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
   const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
   
   const [mapStatus, setMapStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [routeStatus, setRouteStatus] = useState<'idle' | 'calculating' | 'error'>('idle');
+  const [routeStatus, setRouteStatus] = useState<'idle' | 'calculating' | 'recalculating' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
 
   const destinationInputRef = useRef<HTMLInputElement>(null);
@@ -54,6 +54,7 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
   const lastPositionRef = useRef<any>(null);
   const traveledDistanceRef = useRef(0);
   const traveledPathRef = useRef<{ lat: number; lng: number; }[]>([]);
+  const isRecalculatingRef = useRef(false);
 
   // Reset state when component opens for a new trip
   useEffect(() => {
@@ -65,6 +66,7 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
       setPhase('planning');
       setPlanningSubPhase('input');
       setLiveSessionId(null);
+      isRecalculatingRef.current = false;
     }
   }, [tripToView]);
 
@@ -222,27 +224,29 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
     );
   }, [destination]);
 
+  const serializeRouteData = (leg: any) => {
+      return {
+          origin: {
+              address: leg.start_address,
+              location: { lat: leg.start_location.lat(), lng: leg.start_location.lng() }
+          },
+          destination: {
+              address: leg.end_address,
+              location: { lat: leg.end_location.lat(), lng: leg.end_location.lng() }
+          },
+          steps: leg.steps.map((step: any) => ({
+              instructions: step.instructions,
+              distance: step.distance.text,
+              duration: step.duration.text,
+          })),
+      };
+  };
+
   const startNavigation = useCallback(async () => {
     if (!route || !auth.currentUser) return;
     try {
         const leg = route.routes[0].legs[0];
-        
-        // Serialize Google Maps objects to plain JSON
-        const routeDataForCopilot = {
-            origin: {
-                address: leg.start_address,
-                location: { lat: leg.start_location.lat(), lng: leg.start_location.lng() }
-            },
-            destination: {
-                address: leg.end_address,
-                location: { lat: leg.end_location.lat(), lng: leg.end_location.lng() }
-            },
-            steps: leg.steps.map((step: any) => ({
-                instructions: step.instructions,
-                distance: step.distance.text,
-                duration: step.duration.text,
-            })),
-        };
+        const routeDataForCopilot = serializeRouteData(leg);
 
         const sessionRef = await addDoc(collection(db, 'live_sessions'), {
             driverId: auth.currentUser.uid,
@@ -270,6 +274,43 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
     };
   }, [liveSessionId]);
 
+  const recalculateRoute = useCallback((currentPos: { lat: number, lng: number }) => {
+      if (isRecalculatingRef.current || !directionsService.current) return;
+      
+      isRecalculatingRef.current = true;
+      setRouteStatus('recalculating');
+      console.log("Recalculando rota...");
+
+      // Use the original destination from the current route
+      const currentRouteLeg = route.routes[0].legs[0];
+      const destLocation = currentRouteLeg.end_location;
+
+      directionsService.current.route(
+          { origin: currentPos, destination: destLocation, travelMode: 'DRIVING' },
+          (result: any, status: string) => {
+              if (status === 'OK' && result?.routes?.[0]?.legs?.[0]) {
+                  const leg = result.routes[0].legs[0];
+                  directionsRenderer.current.setDirections(result);
+                  setRoute(result);
+                  setTripSummary({ distance: leg.distance.text, duration: leg.duration.text });
+                  
+                  // Update live session with new route data
+                  if (liveSessionId) {
+                      const newRouteData = serializeRouteData(leg);
+                      updateDoc(doc(db, 'live_sessions', liveSessionId), {
+                          routeData: newRouteData,
+                          currentStepIndex: 0 // Reset step index for new route
+                      }).catch(err => console.error("Error updating route for copilot", err));
+                  }
+              } else {
+                  console.warn("Falha ao recalcular rota:", status);
+              }
+              isRecalculatingRef.current = false;
+              setRouteStatus('idle');
+          }
+      );
+  }, [route, liveSessionId]);
+
 
   useEffect(() => {
     if (phase !== 'navigating') {
@@ -278,12 +319,17 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
     }
     
     if (mapInstance.current && route) {
-        const routeBounds = route.routes[0].bounds;
-        mapInstance.current.fitBounds(routeBounds);
+        // Only fit bounds initially, not on every update unless tracking is on, handled below
+        if (!userPositionMarker.current) {
+             const routeBounds = route.routes[0].bounds;
+             mapInstance.current.fitBounds(routeBounds);
+        }
     }
     
     let currentStepIndex = 0;
-    setCurrentInstruction(route.routes[0].legs[0].steps[0].instructions.replace(/<[^>]*>/g, ''));
+    if (route && route.routes[0].legs[0].steps[0]) {
+        setCurrentInstruction(route.routes[0].legs[0].steps[0].instructions.replace(/<[^>]*>/g, ''));
+    }
 
     positionWatcher.current = navigator.geolocation.watchPosition(async (position) => {
         const newPosition = { lat: position.coords.latitude, lng: position.coords.longitude };
@@ -298,27 +344,48 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
             );
         }
         
-        // Find current step
-        const steps = route.routes[0].legs[0].steps;
-        let closestStepIndex = currentStepIndex;
-        let smallestDistance = Infinity;
-
-        for (let i = 0; i < steps.length; i++) {
-          for (let j = 0; j < steps[i].path.length; j++) {
-            const distance = window.google.maps.geometry.spherical.computeDistanceBetween(
-              new window.google.maps.LatLng(newPosition),
-              steps[i].path[j]
-            );
-            if (distance < smallestDistance) {
-              smallestDistance = distance;
-              closestStepIndex = i;
+        // --- Off-route Detection and Recalculation ---
+        if (route && !isRecalculatingRef.current) {
+            const pathPolyline = new window.google.maps.Polyline({
+                path: route.routes[0].overview_path
+            });
+            
+            const currentLatLng = new window.google.maps.LatLng(newPosition.lat, newPosition.lng);
+            // isLocationOnEdge(point, poly, toleranceDegrees). 10e-5 degrees is approx 10-12 meters.
+            // Using 2e-4 (~20-25 meters) tolerance to avoid jitter recalculation.
+            const isOnPath = window.google.maps.geometry.poly.isLocationOnEdge(currentLatLng, pathPolyline, 2e-4);
+            
+            if (!isOnPath) {
+                recalculateRoute(newPosition);
             }
-          }
         }
-        
-        if (closestStepIndex !== currentStepIndex) {
-            currentStepIndex = closestStepIndex;
-            setCurrentInstruction(steps[currentStepIndex].instructions.replace(/<[^>]*>/g, ''));
+        // ---------------------------------------------
+
+        // Find current step (only if we didn't just trigger a recalculation)
+        if (route && !isRecalculatingRef.current) {
+            const steps = route.routes[0].legs[0].steps;
+            let closestStepIndex = currentStepIndex;
+            let smallestDistance = Infinity;
+
+            for (let i = 0; i < steps.length; i++) {
+                // Optimization: Only check current and next few steps to avoid loop entire array
+                // For simplicity, checking all for now or check bounds
+                for (let j = 0; j < steps[i].path.length; j += 5) { // Check every 5th point for perf
+                    const distance = window.google.maps.geometry.spherical.computeDistanceBetween(
+                        new window.google.maps.LatLng(newPosition),
+                        steps[i].path[j]
+                    );
+                    if (distance < smallestDistance) {
+                        smallestDistance = distance;
+                        closestStepIndex = i;
+                    }
+                }
+            }
+            
+            if (closestStepIndex !== currentStepIndex) {
+                currentStepIndex = closestStepIndex;
+                setCurrentInstruction(steps[currentStepIndex].instructions.replace(/<[^>]*>/g, ''));
+            }
         }
 
         if (liveSessionId) {
@@ -362,7 +429,7 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
     return () => {
         if (positionWatcher.current !== null) navigator.geolocation.clearWatch(positionWatcher.current);
     };
-  }, [phase, route, isFollowingUser, liveSessionId]);
+  }, [phase, route, isFollowingUser, liveSessionId, recalculateRoute]);
 
 
   const finishRoute = () => {
@@ -378,7 +445,7 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
         const distanceInKm = traveledDistanceRef.current / 1000;
         const leg = route.routes[0].legs[0];
         
-        // Use plain objects for saving to Firestore - Explicitly constructing objects to avoid custom object errors
+        // Use plain objects for saving to Firestore
         onAddCheckpoint(distanceInKm, new Date().toISOString(), {
             origin: {
                 address: leg.start_address,
@@ -451,7 +518,7 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
         </div>
       <div className="bg-[#141414]/90 p-4 rounded-lg shadow-lg text-center border border-[#444] max-w-lg mx-auto">
         <p className="text-lg font-semibold text-white min-h-[28px]">
-          {currentInstruction || 'Iniciando navegação...'}
+          {routeStatus === 'recalculating' ? 'Recalculando rota...' : (currentInstruction || 'Siga a rota')}
         </p>
       </div>
       <div className="max-w-lg mx-auto w-full">

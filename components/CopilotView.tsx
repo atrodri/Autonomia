@@ -1,5 +1,4 @@
 
-
 import React, { useEffect, useRef, useState } from 'react';
 import { onSnapshot, doc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -69,14 +68,28 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
   useEffect(() => {
     if (routeData && mapInstance.current) {
         const directionsService = new window.google.maps.DirectionsService();
-        directionsService.route(
-            { ...routeData, travelMode: 'DRIVING' },
-            (result: any, status: string) => {
-                if (status === 'OK') {
-                    directionsRenderer.current.setDirections(result);
+        
+        // Extract location coordinates from the serialized routeData object
+        // The TripView saves it as: origin: { location: { lat, lng }, ... }
+        const originLoc = routeData.origin?.location;
+        const destLoc = routeData.destination?.location;
+
+        if (originLoc && destLoc) {
+            directionsService.route(
+                { 
+                    origin: originLoc, 
+                    destination: destLoc, 
+                    travelMode: 'DRIVING' 
+                },
+                (result: any, status: string) => {
+                    if (status === 'OK') {
+                        directionsRenderer.current.setDirections(result);
+                    } else {
+                        console.error("Copilot route calculation failed:", status);
+                    }
                 }
-            }
-        );
+            );
+        }
     }
   }, [routeData, mapInstance.current]);
 

@@ -51,11 +51,11 @@ const HistoryItem: React.FC<{ event: HistoryEvent; onEdit: (event: HistoryEvent)
   const getDescription = () => {
     switch (event.type) {
       case 'start':
-        return `Início do ciclo em ${event.value?.toLocaleString('pt-BR')} km`;
+        return `Início do ciclo em ${(event.value ?? 0).toLocaleString('pt-BR')} km`;
       case 'checkpoint':
-        return `Checkpoint em ${event.value?.toLocaleString('pt-BR')} km`;
+        return `Checkpoint em ${(event.value ?? 0).toLocaleString('pt-BR')} km`;
       case 'refuel':
-        let desc = `Abastecimento de ${event.value?.toLocaleString('pt-BR')} L`;
+        let desc = `Abastecimento de ${(event.value ?? 0).toLocaleString('pt-BR')} L`;
         if (event.pricePerLiter) {
           desc += ` (R$ ${event.pricePerLiter.toFixed(2)}/L)`;
         }
@@ -64,12 +64,12 @@ const HistoryItem: React.FC<{ event: HistoryEvent; onEdit: (event: HistoryEvent)
         }
         return desc;
       case 'consumption':
-        return `Consumo atualizado para ${event.value?.toLocaleString('pt-BR')} km/L`;
+        return `Consumo atualizado para ${(event.value ?? 0).toLocaleString('pt-BR')} km/L`;
       case 'finish':
-        return `Ciclo finalizado em ${event.value?.toLocaleString('pt-BR')} km`;
+        return `Ciclo finalizado em ${(event.value ?? 0).toLocaleString('pt-BR')} km`;
       case 'route':
         const distancia = 'distanciaPercorrida' in event ? event.distanciaPercorrida : 0;
-        return `Rota concluída: +${distancia?.toLocaleString('pt-BR', {maximumFractionDigits: 1})} km`;
+        return `Rota concluída: +${(distancia ?? 0).toLocaleString('pt-BR', {maximumFractionDigits: 1})} km`;
       default:
         return '';
     }
@@ -122,17 +122,19 @@ const HistoryItem: React.FC<{ event: HistoryEvent; onEdit: (event: HistoryEvent)
         <p className="text-white text-sm">{getDescription()}</p>
         <p className="text-xs text-[#888]">{formatHistoryDateTime(event.date)}</p>
       </div>
-      {isEditable && (
+      {(isEditable || (event.type === 'route')) && (
         <div className="flex-shrink-0 mt-1 flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button onClick={() => onEdit(event)} title="Editar Evento" className="text-gray-400 hover:text-white">
-                <EditIcon className="w-5 h-5" />
-            </button>
+            {isEditable && 
+                <button onClick={() => onEdit(event)} title="Editar Evento" className="text-gray-400 hover:text-white">
+                    <EditIcon className="w-5 h-5" />
+                </button>
+            }
             <button onClick={() => onDelete(event)} title="Excluir Evento" className="text-gray-400 hover:text-red-500">
                 <TrashIcon className="w-5 h-5" />
             </button>
         </div>
       )}
-      {isViewable && (
+      {isViewable && !isEditable && (
          <div className="flex-shrink-0 mt-1 flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
             <p className="text-xs text-[#FF6B00]">Ver Rota</p>
          </div>
@@ -155,44 +157,42 @@ const EditEventModal: React.FC<{
         if (event) {
             const localDate = new Date(new Date(event.date).getTime() - new Date().getTimezoneOffset() * 60000);
             setDate(localDate.toISOString().slice(0, 16));
-            // FIX: Use if/else if to ensure TypeScript correctly narrows the 
-            // discriminated union `HistoryEvent`. This allows safe access to properties 
-            // like `pricePerLiter` and `discount` which are specific to the 'refuel' event type.
-            if (event.type === 'checkpoint') {
-                setValue(formatKilometerInput(event.value?.toString() || ''));
-            } else if (event.type === 'refuel') {
-                setValue(event.value?.toString() || '');
-                setPrice((event.pricePerLiter ?? '').toString());
-                setDiscount((event.discount ?? '').toString());
+            
+            switch(event.type) {
+                case 'checkpoint':
+                    setValue(formatKilometerInput((event.value ?? 0).toString()));
+                    break;
+                case 'refuel':
+                    setValue((event.value ?? 0).toString());
+                    setPrice((event.pricePerLiter ?? '').toString());
+                    setDiscount((event.discount ?? '').toString());
+                    break;
             }
         }
     }, [event]);
     
     const handleSave = () => {
       if (!event) return;
-        if (event.type === 'checkpoint') {
-            const updatedEvent: HistoryEvent = { 
-                ...event, 
-                date: new Date(date).toISOString(), 
-                value: parseKilometerInput(value) 
-            };
-            onSave(updatedEvent);
-        } else if (event.type === 'refuel') {
-            const updatedEvent: HistoryEvent = { 
-                ...event, 
-                date: new Date(date).toISOString(),
-                value: parseFloat(value), 
-                pricePerLiter: price ? parseFloat(price) : undefined,
-                discount: discount ? parseFloat(discount) : undefined
-            };
-            // FIX: Use a type guard before accessing properties specific to 'refuel' events.
-            // Also, the delete statements are unnecessary and potentially buggy. Setting to undefined is sufficient.
-            if (updatedEvent.type === 'refuel') {
-                if (updatedEvent.pricePerLiter === undefined) delete updatedEvent.pricePerLiter;
-                if (updatedEvent.discount === undefined) delete updatedEvent.discount;
+        let updatedEvent: HistoryEvent = { ...event, date: new Date(date).toISOString() };
+
+        if (updatedEvent.type === 'checkpoint') {
+            const parsedValue = parseKilometerInput(value);
+            if (!isNaN(parsedValue)) {
+                updatedEvent.value = parsedValue;
             }
-            onSave(updatedEvent);
+        } else if (updatedEvent.type === 'refuel') {
+            const parsedValue = parseFloat(value);
+            const parsedPrice = parseFloat(price);
+            const parsedDiscount = parseFloat(discount);
+
+            if (!isNaN(parsedValue)) {
+                updatedEvent.value = parsedValue;
+            }
+            updatedEvent.pricePerLiter = !isNaN(parsedPrice) ? parsedPrice : undefined;
+            updatedEvent.discount = !isNaN(parsedDiscount) ? parsedDiscount : undefined;
         }
+
+        onSave(updatedEvent);
     };
     
     return (
@@ -236,20 +236,20 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
   const [consumptionDate, setConsumptionDate] = useState(getCurrentDateTimeLocal());
 
   const isFinished = cycle.status === 'finished';
-  const isReadyForAutonomy = cycle.fuelAmount > 0 && cycle.consumption > 0;
+  const isReadyForAutonomy = (cycle.fuelAmount ?? 0) > 0 && (cycle.consumption ?? 0) > 0;
 
   const { maxReachableKm, remainingKm, remainingFuel } = useMemo(() => {
     if (!isReadyForAutonomy) {
-      return { maxReachableKm: cycle.currentMileage, remainingKm: 0, remainingFuel: 0 };
+      return { maxReachableKm: cycle.currentMileage ?? 0, remainingKm: 0, remainingFuel: 0 };
     }
-    const drivenSinceStart = cycle.currentMileage - cycle.initialMileage;
+    const drivenSinceStart = (cycle.currentMileage ?? 0) - (cycle.initialMileage ?? 0);
     let fuelConsumed = 0;
     if (cycle.consumption > 0) {
         fuelConsumed = drivenSinceStart / cycle.consumption;
     }
-    const currentRemainingFuel = Math.max(0, cycle.fuelAmount - fuelConsumed);
-    const currentRemainingKm = currentRemainingFuel * cycle.consumption;
-    const maxReachableKm = cycle.currentMileage + currentRemainingKm;
+    const currentRemainingFuel = Math.max(0, (cycle.fuelAmount ?? 0) - fuelConsumed);
+    const currentRemainingKm = currentRemainingFuel * (cycle.consumption ?? 0);
+    const maxReachableKm = (cycle.currentMileage ?? 0) + currentRemainingKm;
 
     return { maxReachableKm, remainingKm: currentRemainingKm, remainingFuel: currentRemainingFuel };
   }, [cycle, isReadyForAutonomy]);
@@ -260,7 +260,7 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
 
   const handleCheckpointSubmit = () => {
     const mileage = parseKilometerInput(newMileage);
-    if (!isNaN(mileage) && mileage > cycle.currentMileage) {
+    if (!isNaN(mileage) && mileage > (cycle.currentMileage ?? 0)) {
       onAddCheckpoint(mileage, new Date(checkpointDate).toISOString());
       setNewMileage('');
       setCheckpointModalOpen(false);
@@ -314,7 +314,7 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
   }
   const openConsumptionModal = () => {
     setConsumptionDate(getCurrentDateTimeLocal());
-    setNewConsumption(cycle.consumption > 0 ? cycle.consumption.toString() : '');
+    setNewConsumption((cycle.consumption ?? 0) > 0 ? (cycle.consumption ?? 0).toString() : '');
     setConsumptionModalOpen(true);
   }
 
@@ -347,7 +347,7 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
               <div className="mb-8">
                 <p className="text-lg text-[#CFCFCF]">Quilometragem Restante</p>
                 <p className="text-6xl font-bold text-[#FF6B00] tracking-tight">
-                  {kmIntegerFormatter.format(remainingKm)}
+                  {kmIntegerFormatter.format(remainingKm ?? 0)}
                   <span className="text-2xl font-normal ml-2">km</span>
                 </p>
               </div>
@@ -355,19 +355,19 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
               <div className="grid grid-cols-2 sm:grid-cols-2 gap-6 text-center mb-8">
                 <div>
                   <p className="text-sm text-[#CFCFCF] uppercase tracking-wider">KM Atual</p>
-                  <p className="text-xl font-semibold text-white">{kmIntegerFormatter.format(cycle.currentMileage)} km</p>
+                  <p className="text-xl font-semibold text-white">{kmIntegerFormatter.format(cycle.currentMileage ?? 0)} km</p>
                 </div>
                 <div>
                   <p className="text-sm text-[#CFCFCF] uppercase tracking-wider">Autonomia Máx.</p>
-                  <p className="text-xl font-semibold text-white">{kmIntegerFormatter.format(maxReachableKm)} km</p>
+                  <p className="text-xl font-semibold text-white">{kmIntegerFormatter.format(maxReachableKm ?? 0)} km</p>
                 </div>
                 <div>
                   <p className="text-sm text-[#CFCFCF] uppercase tracking-wider">Saldo Combustível</p>
-                  <p className="text-xl font-semibold text-white">{numberFormatter.format(remainingFuel)} L</p>
+                  <p className="text-xl font-semibold text-white">{numberFormatter.format(remainingFuel ?? 0)} L</p>
                 </div>
                 <div>
                   <p className="text-sm text-[#CFCFCF] uppercase tracking-wider">Consumo</p>
-                  <p className="text-xl font-semibold text-white">{numberFormatter.format(cycle.consumption)} km/l</p>
+                  <p className="text-xl font-semibold text-white">{numberFormatter.format(cycle.consumption ?? 0)} km/l</p>
                 </div>
               </div>
             </>
@@ -378,10 +378,10 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
                 Para calcular la autonomia, precisamos de mais algumas informações.
               </p>
               <ul className="mt-4 text-left inline-block space-y-2 list-disc list-inside">
-                {cycle.fuelAmount <= 0 && (
+                {(cycle.fuelAmount ?? 0) <= 0 && (
                   <li className="text-sm">Use o botão <strong>Abastecer</strong> para registrar seu primeiro abastecimento.</li>
                 )}
-                {cycle.consumption <= 0 && (
+                {(cycle.consumption ?? 0) <= 0 && (
                    <li className="text-sm">Use o botão <strong>Atualizar Consumo</strong> para informar o consumo do veículo.</li>
                 )}
               </ul>
@@ -453,7 +453,7 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
             inputMode="numeric"
             value={newMileage}
             onChange={(e) => setNewMileage(formatKilometerInput(e.target.value))}
-            placeholder={`Maior que ${cycle.currentMileage.toLocaleString('pt-BR')}`}
+            placeholder={`Maior que ${(cycle.currentMileage ?? 0).toLocaleString('pt-BR')}`}
           />
           <div className="pt-2 flex gap-4">
             <Button variant="secondary" onClick={() => setCheckpointModalOpen(false)} className="w-full">Cancelar</Button>

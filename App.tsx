@@ -1,4 +1,5 @@
 
+
 import React, { useState, useCallback, useEffect } from 'react';
 import type { Cycle, HistoryEvent } from './types';
 import CycleForm from './components/CycleForm';
@@ -132,9 +133,14 @@ const App: React.FC = () => {
               const data = doc.data();
               return {
                 id: doc.id,
-                ...data,
+                name: data.name || 'Ciclo sem nome',
                 startDate: (data.startDate as Timestamp)?.toDate().toISOString() || new Date().toISOString(),
-                finishDate: (data.finishDate as Timestamp)?.toDate().toISOString(), // Converte finishDate
+                finishDate: (data.finishDate as Timestamp)?.toDate().toISOString(),
+                initialMileage: data.initialMileage ?? 0,
+                currentMileage: data.currentMileage ?? 0,
+                fuelAmount: data.fuelAmount ?? 0,
+                consumption: data.consumption ?? 0,
+                status: data.status || 'active',
                 history: [] // O histórico será carregado sob demanda
               } as Cycle
             });
@@ -354,15 +360,14 @@ const App: React.FC = () => {
       const cycleRef = doc(db, 'usuarios', currentUser.uid, 'ciclos', cycleId);
       
       // Precisamos dos dados iniciais do ciclo para recalcular corretamente
-      // Como 'history' aqui já contém o 'start' virtual (adicionado na renderização), podemos usá-lo
-      const startEvent = history.find(e => e.type === 'start');
-      const initialMileage = startEvent ? startEvent.value : 0;
       const currentCycle = cycles.find(c => c.id === cycleId);
-      const initialConsumption = currentCycle ? currentCycle.consumption : 0;
+      if (!currentCycle) return;
+      
+      const { initialMileage, name, startDate, status, id } = currentCycle;
       
       // Filtra o 'start' do cálculo pois ele é base
       const { currentMileage, fuelAmount, consumption } = recalculateCycleStateFromHistory(
-          { initialMileage, name: '', startDate: '', status: 'active', id: '', consumption: initialConsumption },
+          { initialMileage, name, startDate, status, id, consumption: currentCycle.consumption },
           history.filter(e => e.type !== 'start')
       );
 
@@ -393,9 +398,9 @@ const App: React.FC = () => {
     await addEventToSubcollection('checkpoint', { type: 'checkpoint', value: newMileage, date });
   }, [activeCycleWithHistory]);
   
-  const handleAddRouteCheckpoint = useCallback(async (distance: number, date: string, routeData: { origin: any, destination: any }) => {
+  const handleAddRouteCheckpoint = useCallback(async (distance: number, date: string, routeData: { origin: any, destination: any, traveledPath: { lat: number; lng: number }[] }) => {
     if (!activeCycleWithHistory) return;
-    const newMileage = activeCycleWithHistory.currentMileage + distance;
+    const newMileage = (activeCycleWithHistory.currentMileage ?? 0) + distance;
 
     await addEventToSubcollection('checkpoint', { 
         type: 'route',
@@ -403,7 +408,8 @@ const App: React.FC = () => {
         distanciaPercorrida: distance,
         date,
         origin: routeData.origin,
-        destination: routeData.destination
+        destination: routeData.destination,
+        traveledPath: routeData.traveledPath
     });
   }, [activeCycleWithHistory]);
 
@@ -492,8 +498,23 @@ const App: React.FC = () => {
     const payload: any = { ...updatedEvent, date: Timestamp.fromDate(new Date(updatedEvent.date)) };
     delete payload.id;
     
-    if (payload.pricePerLiter === undefined || payload.pricePerLiter === '') delete payload.pricePerLiter;
-    if (payload.discount === undefined || payload.discount === '') delete payload.discount;
+    if (updatedEvent.type === 'refuel') {
+      const value = updatedEvent.value;
+      const pricePerLiter = updatedEvent.pricePerLiter;
+      const discount = updatedEvent.discount;
+
+      if (isNaN(value) || value <= 0) {
+        alert("Quantidade de combustível inválida.");
+        return;
+      }
+      
+      payload.value = value;
+      payload.pricePerLiter = (pricePerLiter && !isNaN(pricePerLiter)) ? pricePerLiter : undefined;
+      payload.discount = (discount && !isNaN(discount)) ? discount : undefined;
+    }
+
+    // Clean up undefined fields
+    Object.keys(payload).forEach(key => payload[key] === undefined && delete payload[key]);
 
 
     await updateDoc(eventRef, payload);

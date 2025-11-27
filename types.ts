@@ -12,6 +12,7 @@ export type HistoryEvent =
       origin?: any;
       destination?: any;
       distanciaPercorrida?: number;
+      traveledPath?: { lat: number; lng: number; }[];
     };
 
 

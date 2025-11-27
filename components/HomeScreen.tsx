@@ -1,4 +1,5 @@
 
+
 import React, { useMemo } from 'react';
 import type { Cycle } from '../types';
 import { Button } from './ui/Button';
@@ -67,8 +68,8 @@ service cloud.firestore {
           ) : activeCycles.length > 0 ? (
             <div className="space-y-3">
               {activeCycles.map(cycle => {
-                const drivenKm = cycle.currentMileage - cycle.initialMileage;
-                const initialAutonomy = cycle.fuelAmount * cycle.consumption;
+                const drivenKm = (cycle.currentMileage ?? 0) - (cycle.initialMileage ?? 0);
+                const initialAutonomy = (cycle.fuelAmount ?? 0) * (cycle.consumption ?? 0);
                 const remainingKm = Math.max(0, initialAutonomy - drivenKm);
 
                 return (
@@ -79,7 +80,7 @@ service cloud.firestore {
                     <div>
                       <h3 className="font-bold text-white text-lg">{cycle.name}</h3>
                       <p className="text-sm text-[#FF6B00] font-semibold">
-                        {numberFormatter.format(remainingKm)} km restantes
+                        {numberFormatter.format(remainingKm ?? 0)} km restantes
                       </p>
                     </div>
                     <div className="flex items-center gap-2">

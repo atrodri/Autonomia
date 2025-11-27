@@ -16,7 +16,7 @@ declare global {
 interface RouteViewProps {
   cycle?: Cycle;
   onEndTrip: () => void;
-  onAddCheckpoint?: (distance: number, date: string, routeData: { origin: any, destination: any }) => void;
+  onAddCheckpoint?: (distance: number, date: string, routeData: { origin: any; destination: any; traveledPath: { lat: number; lng: number }[] }) => void;
   tripToView?: HistoryEvent | null;
 }
 
@@ -49,6 +49,20 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
   const positionWatcher = useRef<number | null>(null);
   const lastPositionRef = useRef<any>(null);
   const traveledDistanceRef = useRef(0);
+  const traveledPathRef = useRef<{ lat: number; lng: number; }[]>([]);
+
+  // Reset state when component opens for a new trip
+  useEffect(() => {
+    if (!tripToView) {
+      traveledDistanceRef.current = 0;
+      traveledPathRef.current = [];
+      setDestination('');
+      setRoute(null);
+      setPhase('planning');
+      setPlanningSubPhase('input');
+    }
+  }, [tripToView]);
+
 
   const initMap = useCallback((center: { lat: number; lng: number }) => {
     if (mapRef.current && !mapInstance.current) {
@@ -81,7 +95,7 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
         directionsRenderer.current.setMap(mapInstance.current);
         setMapStatus('ready');
     }
-  }, [phase]);
+  }, []);
 
   const setupAutocomplete = useCallback(() => {
     if (mapStatus === 'ready' && destinationInputRef.current) {
@@ -118,6 +132,45 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
   useEffect(() => {
     setupAutocomplete();
   }, [setupAutocomplete]);
+
+  useEffect(() => {
+    if (mapStatus === 'ready' && phase === 'viewing' && tripToView && tripToView.type === 'route') {
+      if (tripToView.traveledPath && tripToView.traveledPath.length > 1) {
+        const polyline = new window.google.maps.Polyline({
+          path: tripToView.traveledPath,
+          geodesic: true,
+          strokeColor: '#FFEB3B',
+          strokeOpacity: 0.9,
+          strokeWeight: 6,
+        });
+        polyline.setMap(mapInstance.current);
+
+        const bounds = new window.google.maps.LatLngBounds();
+        tripToView.traveledPath.forEach(point => bounds.extend(point));
+        mapInstance.current.fitBounds(bounds);
+
+        if (tripToView.distanciaPercorrida) {
+          setTripSummary({ distance: `${tripToView.distanciaPercorrida.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} km`, duration: 'Percurso Salvo' });
+        }
+
+      } else if (tripToView.origin && tripToView.destination) {
+        // Fallback for old routes
+        directionsService.current.route(
+          { origin: tripToView.origin, destination: tripToView.destination, travelMode: 'DRIVING' },
+          (result: any, status: string) => {
+            if (status === 'OK') {
+              directionsRenderer.current.setDirections(result);
+              const leg = result.routes[0].legs[0];
+              setTripSummary({ distance: leg.distance.text, duration: leg.duration.text });
+            } else {
+              setError("Não foi possível recarregar esta rota.");
+            }
+          }
+        );
+      }
+    }
+  }, [mapStatus, phase, tripToView]);
+
 
   const handleCalculateRoute = useCallback(() => {
     setRouteStatus('calculating');
@@ -180,6 +233,8 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
 
     positionWatcher.current = navigator.geolocation.watchPosition((position) => {
         const newPosition = { lat: position.coords.latitude, lng: position.coords.longitude };
+        traveledPathRef.current.push(newPosition);
+
         const heading = position.coords.heading ?? (lastPositionRef.current ? window.google.maps.geometry.spherical.computeHeading(new window.google.maps.LatLng(lastPositionRef.current), new window.google.maps.LatLng(newPosition)) : 0);
         
         if (lastPositionRef.current) {
@@ -231,10 +286,11 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
 
   const handleConfirmCheckpoint = () => {
     if (onAddCheckpoint && route) {
-        const distanceInMeters = traveledDistanceRef.current > 0 ? traveledDistanceRef.current : route.routes[0].legs[0].distance.value;
-        onAddCheckpoint(distanceInMeters / 1000, new Date().toISOString(), {
+        const distanceInKm = traveledDistanceRef.current / 1000;
+        onAddCheckpoint(distanceInKm, new Date().toISOString(), {
             origin: route.request.origin.location.toJSON(),
             destination: route.request.destination.query,
+            traveledPath: traveledPathRef.current,
         });
     }
     setIsConfirmModalOpen(false);
@@ -309,7 +365,7 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
   );
 
   return (
-    <div className={`fixed inset-0 bg-[#0A0A0A] z-40 flex flex-col ${phase === 'navigating' ? 'is-navigating' : ''}`}>
+    <div className={`fixed inset-0 bg-[#0A0A0A] z-40 flex flex-col ${phase === 'navigating' || phase === 'viewing' ? 'is-navigating' : ''}`}>
       <div className="absolute top-0 left-0 right-0 p-4 z-20 flex justify-between items-center">
         <button type="button" onClick={onEndTrip} className="bg-[#141414]/80 p-2 rounded-lg border border-[#444] shadow-lg text-[#FF6B00] hover:text-[#ff852b] transition-colors flex items-center text-sm">
           <ChevronLeftIcon className="w-5 h-5 mr-1" />
@@ -321,10 +377,20 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
       
       {phase === 'planning' && renderPlanningUI()}
       {phase === 'navigating' && renderNavigationUI()}
+      {phase === 'viewing' && tripSummary.distance && (
+          <div className="absolute bottom-0 left-0 right-0 p-4 z-10">
+              <div className="bg-[#141414]/90 p-4 rounded-lg shadow-lg text-center border border-[#444] max-w-lg mx-auto">
+                  <p className="text-lg font-semibold text-white">
+                      {tripSummary.distance} <span className="text-sm text-[#CFCFCF]">({tripSummary.duration})</span>
+                  </p>
+              </div>
+          </div>
+      )}
+
 
       <Modal isOpen={isConfirmModalOpen} onClose={() => setIsConfirmModalOpen(false)} title="Registrar Rota">
         <div className="space-y-4">
-          <p>Deseja adicionar a distância percorrida de <strong className="text-[#FF6B00]">~{(traveledDistanceRef.current / 1000).toFixed(1)} km</strong> como um novo checkpoint no ciclo?</p>
+          <p>Deseja adicionar a distância percorrida de <strong className="text-[#FF6B00]">{`~${(traveledDistanceRef.current / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} km`}</strong> como um novo checkpoint no ciclo?</p>
           <div className="pt-2 flex gap-4">
             <Button type="button" variant="secondary" onClick={() => { setIsConfirmModalOpen(false); onEndTrip(); }} className="w-full">Não</Button>
             <Button type="button" onClick={handleConfirmCheckpoint} className="w-full">Sim, Adicionar</Button>

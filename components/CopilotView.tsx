@@ -1,4 +1,5 @@
 
+
 import React, { useEffect, useRef, useState } from 'react';
 import { onSnapshot, doc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -19,15 +20,19 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<any>(null);
   const driverMarker = useRef<any>(null);
+  const directionsRenderer = useRef<any>(null);
+
   const [status, setStatus] = useState<CopilotStatus>('connecting');
   const [error, setError] = useState<string | null>(null);
+  const [currentInstruction, setCurrentInstruction] = useState('Aguardando início da navegação...');
+  const [routeData, setRouteData] = useState<any>(null);
 
   useEffect(() => {
     const initMap = (center: { lat: number; lng: number }) => {
       if (mapRef.current && !mapInstance.current) {
         mapInstance.current = new window.google.maps.Map(mapRef.current, {
           center,
-          zoom: 18,
+          zoom: 16,
           disableDefaultUI: true,
           styles: [
             { elementType: "geometry", stylers: [{ color: "#242f3e" }] },
@@ -40,11 +45,16 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
             { featureType: "water", elementType: "geometry", stylers: [{ color: "#17263c" }] },
           ],
         });
+        directionsRenderer.current = new window.google.maps.DirectionsRenderer({
+            polylineOptions: { strokeColor: '#FFEB3B', strokeWeight: 6, strokeOpacity: 0.9 },
+            suppressMarkers: true,
+        });
+        directionsRenderer.current.setMap(mapInstance.current);
       }
     };
 
     const handleMapReady = () => {
-        initMap({ lat: -23.55052, lng: -46.633308 }); // Default center
+        initMap({ lat: -23.55052, lng: -46.633308 });
     };
 
     if (window.google?.maps) {
@@ -54,19 +64,47 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
     }
     return () => window.removeEventListener('google-maps-ready', handleMapReady);
   }, []);
+  
+  // Render route when data is available
+  useEffect(() => {
+    if (routeData && mapInstance.current) {
+        const directionsService = new window.google.maps.DirectionsService();
+        directionsService.route(
+            { ...routeData, travelMode: 'DRIVING' },
+            (result: any, status: string) => {
+                if (status === 'OK') {
+                    directionsRenderer.current.setDirections(result);
+                }
+            }
+        );
+    }
+  }, [routeData, mapInstance.current]);
+
 
   useEffect(() => {
-    if (!sessionId || !mapInstance.current) return;
+    if (!sessionId) return;
 
     const sessionDocRef = doc(db, 'live_sessions', sessionId);
     const unsubscribe = onSnapshot(sessionDocRef, (docSnap) => {
       if (docSnap.exists()) {
         setStatus('active');
         const data = docSnap.data();
+        
+        // Load route data on first connect
+        if (data.routeData && !routeData) {
+            setRouteData(data.routeData);
+        }
+
         const position = data.position;
         const heading = data.heading;
+        const currentStepIndex = data.currentStepIndex;
+
+        if (data.routeData?.steps && typeof currentStepIndex === 'number') {
+            const instructionText = data.routeData.steps[currentStepIndex]?.instructions || "Continuar na rota";
+            setCurrentInstruction(instructionText.replace(/<[^>]*>/g, ''));
+        }
         
-        if (position) {
+        if (position && mapInstance.current) {
           if (!driverMarker.current) {
             driverMarker.current = new window.google.maps.Marker({
               position,
@@ -104,11 +142,36 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
     });
 
     return () => unsubscribe();
-  }, [sessionId, mapInstance.current]);
+  }, [sessionId, routeData]);
+
+  const renderHeader = () => (
+    <div className="absolute top-0 left-0 right-0 p-4 z-20">
+      <div className="bg-[#141414]/80 p-3 rounded-lg border border-[#444] max-w-sm mx-auto text-center shadow-lg">
+          <h1 className="text-xl font-bold text-white tracking-tight">
+            autonomia<span className="text-[#FF6B00]">+</span>
+          </h1>
+          <p className="text-xs font-semibold uppercase tracking-wider text-[#888]">Modo Co-piloto</p>
+      </div>
+    </div>
+  );
 
   return (
     <div className="fixed inset-0 bg-[#0A0A0A] z-50">
       <div ref={mapRef} className="absolute inset-0 z-0" />
+
+      {status === 'active' && (
+        <>
+            {renderHeader()}
+            <div className="absolute bottom-0 left-0 right-0 p-4 space-y-3 z-10">
+                <div className="bg-[#141414]/90 p-4 rounded-lg shadow-lg text-center border border-[#444] max-w-lg mx-auto">
+                    <p className="text-lg font-semibold text-white min-h-[28px]">
+                        {currentInstruction}
+                    </p>
+                </div>
+            </div>
+        </>
+      )}
+      
       <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
         {status === 'connecting' && (
           <div className="bg-[#141414]/90 p-4 rounded-lg text-center">
@@ -123,11 +186,6 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
           </div>
         )}
       </div>
-       <div className="absolute top-0 left-0 right-0 p-4 z-20">
-          <h1 className="text-lg font-bold text-white tracking-tight text-center bg-[#141414]/80 p-2 rounded-lg border border-[#444] max-w-xs mx-auto">
-            autonomia<span className="text-[#FF6B00]">+</span> Co-piloto
-          </h1>
-        </div>
     </div>
   );
 };

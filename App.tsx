@@ -393,7 +393,7 @@ const App: React.FC = () => {
     await addEventToSubcollection('checkpoint', { type: 'checkpoint', value: newMileage, date });
   }, [activeCycleWithHistory]);
   
-  const handleAddRouteCheckpoint = useCallback(async (distance: number, date: string, routeData: { origin: any, destination: any, traveledPath: { lat: number; lng: number }[] }) => {
+  const handleAddRouteCheckpoint = useCallback(async (distance: number, date: string, routeData: { origin: any; destination: any; traveledPath: { lat: number; lng: number }[] }) => {
     if (!activeCycleWithHistory) return;
     const newMileage = (activeCycleWithHistory.currentMileage ?? 0) + distance;
 

@@ -221,10 +221,21 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
   const startNavigation = useCallback(async () => {
     if (!route || !auth.currentUser) return;
     try {
+        const routeDataForCopilot = {
+            origin: route.request.origin,
+            destination: route.request.destination,
+            steps: route.routes[0].legs[0].steps.map((step: any) => ({
+                instructions: step.instructions,
+                distance: step.distance.text,
+                duration: step.duration.text,
+            })),
+        };
+
         const sessionRef = await addDoc(collection(db, 'live_sessions'), {
             driverId: auth.currentUser.uid,
             createdAt: new Date().toISOString(),
-            // Initial position can be set here if needed
+            routeData: routeDataForCopilot,
+            currentStepIndex: 0,
         });
         setLiveSessionId(sessionRef.id);
         setPhase('navigating');
@@ -255,6 +266,7 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
         mapInstance.current.fitBounds(routeBounds);
     }
     
+    let currentStepIndex = 0;
     setCurrentInstruction(route.routes[0].legs[0].steps[0].instructions.replace(/<[^>]*>/g, ''));
 
     positionWatcher.current = navigator.geolocation.watchPosition(async (position) => {
@@ -269,11 +281,35 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
                 new window.google.maps.LatLng(newPosition)
             );
         }
+        
+        // Find current step
+        const steps = route.routes[0].legs[0].steps;
+        let closestStepIndex = currentStepIndex;
+        let smallestDistance = Infinity;
+
+        for (let i = 0; i < steps.length; i++) {
+          for (let j = 0; j < steps[i].path.length; j++) {
+            const distance = window.google.maps.geometry.spherical.computeDistanceBetween(
+              new window.google.maps.LatLng(newPosition),
+              steps[i].path[j]
+            );
+            if (distance < smallestDistance) {
+              smallestDistance = distance;
+              closestStepIndex = i;
+            }
+          }
+        }
+        
+        if (closestStepIndex !== currentStepIndex) {
+            currentStepIndex = closestStepIndex;
+            setCurrentInstruction(steps[currentStepIndex].instructions.replace(/<[^>]*>/g, ''));
+        }
 
         if (liveSessionId) {
             await updateDoc(doc(db, 'live_sessions', liveSessionId), {
                 position: newPosition,
                 heading,
+                currentStepIndex,
             });
         }
 

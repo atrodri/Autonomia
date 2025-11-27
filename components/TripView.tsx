@@ -160,8 +160,12 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
 
       } else if (tripToView.origin && tripToView.destination) {
         // Fallback for old routes without traveledPath
+        // Use coordinates if available in the saved objects, otherwise might fail if it's not proper geocodable string
+        const requestOrigin = tripToView.origin.location ? tripToView.origin.location : tripToView.origin;
+        const requestDestination = tripToView.destination.location ? tripToView.destination.location : tripToView.destination;
+
         directionsService.current.route(
-          { origin: tripToView.origin, destination: tripToView.destination, travelMode: 'DRIVING' },
+          { origin: requestOrigin, destination: requestDestination, travelMode: 'DRIVING' },
           (result: any, status: string) => {
             if (status === 'OK') {
               directionsRenderer.current.setDirections(result);
@@ -221,10 +225,19 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
   const startNavigation = useCallback(async () => {
     if (!route || !auth.currentUser) return;
     try {
+        const leg = route.routes[0].legs[0];
+        
+        // Serialize Google Maps objects to plain JSON
         const routeDataForCopilot = {
-            origin: route.request.origin,
-            destination: route.request.destination,
-            steps: route.routes[0].legs[0].steps.map((step: any) => ({
+            origin: {
+                address: leg.start_address,
+                location: { lat: leg.start_location.lat(), lng: leg.start_location.lng() }
+            },
+            destination: {
+                address: leg.end_address,
+                location: { lat: leg.end_location.lat(), lng: leg.end_location.lng() }
+            },
+            steps: leg.steps.map((step: any) => ({
                 instructions: step.instructions,
                 distance: step.distance.text,
                 duration: step.duration.text,
@@ -249,7 +262,10 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
   useEffect(() => {
     return () => {
       if (liveSessionId) {
-        deleteDoc(doc(db, 'live_sessions', liveSessionId));
+        // Add catch block to prevent unhandled promise rejections due to permission errors
+        deleteDoc(doc(db, 'live_sessions', liveSessionId)).catch(err => {
+            console.warn("Could not delete live session on cleanup (likely permission issue or already deleted):", err);
+        });
       }
     };
   }, [liveSessionId]);
@@ -351,7 +367,7 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
 
   const finishRoute = () => {
     if (liveSessionId) {
-        deleteDoc(doc(db, 'live_sessions', liveSessionId));
+        deleteDoc(doc(db, 'live_sessions', liveSessionId)).catch(err => console.warn("Delete session failed:", err));
         setLiveSessionId(null);
     }
     setIsConfirmModalOpen(true);
@@ -360,9 +376,18 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
   const handleConfirmCheckpoint = () => {
     if (onAddCheckpoint && route) {
         const distanceInKm = traveledDistanceRef.current / 1000;
+        const leg = route.routes[0].legs[0];
+        
+        // Use plain objects for saving to Firestore - Explicitly constructing objects to avoid custom object errors
         onAddCheckpoint(distanceInKm, new Date().toISOString(), {
-            origin: route.request.origin.location.toJSON(),
-            destination: route.request.destination.query,
+            origin: {
+                address: leg.start_address,
+                location: { lat: leg.start_location.lat(), lng: leg.start_location.lng() }
+            },
+            destination: {
+                address: leg.end_address,
+                location: { lat: leg.end_location.lat(), lng: leg.end_location.lng() }
+            },
             traveledPath: traveledPathRef.current,
         });
     }

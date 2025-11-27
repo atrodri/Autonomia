@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { LogoutIcon, UserIcon } from './icons/Icons';
 import { signOut } from 'firebase/auth';

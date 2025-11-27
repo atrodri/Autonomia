@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, updateProfile, updateEmail, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { doc, updateDoc } from 'firebase/firestore';
@@ -30,8 +30,25 @@ const UserSettingsModal: React.FC<UserSettingsModalProps> = ({ isOpen, onClose, 
   
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
+  useEffect(() => {
+    if (isOpen) {
+        setDisplayName(currentUser.displayName || '');
+        setPhotoURL(currentUser.photoURL || '');
+        setEmail(currentUser.email || '');
+        setMessage(null);
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+    }
+  }, [isOpen, currentUser]);
+
+
   const handleUpdateProfile = async () => {
     setMessage(null);
+    if (displayName.trim() === '') {
+        setMessage({ type: 'error', text: 'O nome não pode estar em branco.' });
+        return;
+    }
     try {
       // Update Firebase Auth profile
       await updateProfile(currentUser, {
@@ -87,33 +104,39 @@ const UserSettingsModal: React.FC<UserSettingsModalProps> = ({ isOpen, onClose, 
       const credential = EmailAuthProvider.credential(currentUser.email, currentPassword);
       await reauthenticateWithCredential(currentUser, credential);
 
+      let successMessage = "Conta atualizada com sucesso!";
+      
       // Update email if changed
       if (email !== currentUser.email) {
         await updateEmail(currentUser, email);
         const userDocRef = doc(db, "usuarios", currentUser.uid);
         await updateDoc(userDocRef, { email: email });
+        successMessage = "E-mail atualizado! ";
       }
 
       // Update password if new one is provided
       if (newPassword) {
+        if (newPassword.length < 6) {
+             setMessage({ type: 'error', text: 'A nova senha deve ter pelo menos 6 caracteres.' });
+             return;
+        }
         if (newPassword !== confirmPassword) {
             setMessage({ type: 'error', text: 'As novas senhas não coincidem.' });
             return;
         }
         await updatePassword(currentUser, newPassword);
+        successMessage += "Senha atualizada!";
       }
 
-      setMessage({ type: 'success', text: 'Conta atualizada com sucesso!' });
+      setMessage({ type: 'success', text: successMessage.trim() });
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
     } catch (error: any) {
        const errorCodes = ['auth/wrong-password', 'auth/invalid-credential'];
        if (errorCodes.includes(error.code)) {
-           // Expected user error, don't log to console as a critical error.
            setMessage({ type: 'error', text: 'Senha atual incorreta.' });
        } else {
-           // Unexpected error.
            console.error("Re-authentication failed with unexpected error:", error);
            setMessage({ type: 'error', text: 'Erro ao atualizar conta: ' + error.message });
        }

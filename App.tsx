@@ -1,5 +1,3 @@
-
-
 import React, { useState, useCallback, useEffect } from 'react';
 import type { Cycle, HistoryEvent } from './types';
 import CycleForm from './components/CycleForm';
@@ -70,7 +68,6 @@ const App: React.FC = () => {
   const [copilotSessionId, setCopilotSessionId] = useState<string | null>(null);
 
   const [cycles, setCycles] = useState<Cycle[]>([]);
-  // Estado para armazenar o histórico completo do ciclo ATIVO (vindo das subcoleções)
   const [activeCycleHistory, setActiveCycleHistory] = useState<HistoryEvent[]>([]);
   
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -115,7 +112,7 @@ const App: React.FC = () => {
     return () => unsubscribe();
   }, []);
   
-  // Listener para a lista de Ciclos (apenas o documento pai)
+  // Listener for Cycles list
   useEffect(() => {
     if (currentUser?.uid) {
         setFirestoreError(null);
@@ -136,7 +133,7 @@ const App: React.FC = () => {
                 fuelAmount: data.fuelAmount ?? 0,
                 consumption: data.consumption ?? 0,
                 status: data.status || 'active',
-                history: [] // O histórico será carregado sob demanda
+                history: [] // History is loaded on demand
               } as Cycle
             });
             setCycles(cyclesData);
@@ -154,80 +151,52 @@ const App: React.FC = () => {
     }
   }, [currentUser]);
 
+  // States for subcollection listeners
+  const [abastecimentoHistory, setAbastecimentoHistory] = useState<HistoryEvent[]>([]);
+  const [checkpointHistory, setCheckpointHistory] = useState<HistoryEvent[]>([]);
+  const [consumoHistory, setConsumoHistory] = useState<HistoryEvent[]>([]);
 
-  const [isCreating, setIsCreating] = useState<boolean>(false);
-  const [isTrackingRoute, setIsTrackingRoute] = useState<boolean>(false);
-  const [cycleToDeleteId, setCycleToDeleteId] = useState<string | null>(null);
-  
-  // Estados para edição/exclusão (que agora são documentos em subcoleções)
-  const [eventToEdit, setEventToEdit] = useState<HistoryEvent | null>(null);
-  const [eventToDelete, setEventToDelete] = useState<HistoryEvent | null>(null);
-  const [routeToView, setRouteToView] = useState<HistoryEvent | null>(null);
-
-  // Listener para Subcoleções do Ciclo Ativo
+  // Listener for Active Cycle Subcollections
   useEffect(() => {
-    if (!currentUser?.uid || (!activeCycleId && !reportCycleId)) {
+    const targetCycleId = activeCycleId || reportCycleId;
+    if (!currentUser?.uid || !targetCycleId) {
         setActiveCycleHistory([]);
+        setAbastecimentoHistory([]);
+        setCheckpointHistory([]);
+        setConsumoHistory([]);
         return;
     }
 
-    const targetCycleId = activeCycleId || reportCycleId;
-    if (!targetCycleId) return;
-
     const basePath = `usuarios/${currentUser.uid}/ciclos/${targetCycleId}`;
     
-    const handleError = (context: string) => (error: any) => {
-        if (error.code === 'permission-denied') {
-            console.warn(`Permission denied for ${context}. Please check Firestore rules.`);
-            // A mensagem principal de erro já foi setada pelo listener de ciclos.
-        } else {
-            console.error(`Error fetching ${context}:`, error);
-        }
+    const createListener = (subcollection: string, setter: React.Dispatch<React.SetStateAction<HistoryEvent[]>>) => {
+        const handleError = (error: any) => {
+            if (error.code === 'permission-denied') {
+                console.warn(`Permission denied for ${subcollection}.`);
+                setFirestoreError("Permissão negada. Verifique suas Regras de Segurança do Firestore.");
+            } else {
+                console.error(`Error fetching ${subcollection}:`, error);
+            }
+            setter([]); // Clear state on error
+        };
+
+        const subcollectionRef = collection(db, basePath, subcollection);
+        return onSnapshot(subcollectionRef, (snap) => {
+            const events = snap.docs.map((doc: any) => {
+                const data = doc.data();
+                return {
+                    id: doc.id,
+                    ...data,
+                    date: (data.date as Timestamp)?.toDate().toISOString() || new Date().toISOString()
+                };
+            });
+            setter(events as HistoryEvent[]);
+        }, handleError);
     };
 
-    // Escutar as 3 subcoleções com tratamento de erro
-    const unsubAbastecimento = onSnapshot(collection(db, basePath, 'abastecimento'), 
-        (snap) => updateHistoryState('refuel', snap),
-        handleError('abastecimento')
-    );
-    const unsubCheckpoint = onSnapshot(collection(db, basePath, 'checkpoint'), 
-        (snap) => updateHistoryState('checkpoint', snap),
-        handleError('checkpoint')
-    );
-    const unsubConsumo = onSnapshot(collection(db, basePath, 'consumo'), 
-        (snap) => updateHistoryState('consumption', snap),
-        handleError('consumo')
-    );
-
-    // Armazenamento temporário para merge
-    let historyMap: Record<string, HistoryEvent[]> = {
-        refuel: [],
-        checkpoint: [],
-        consumption: []
-    };
-
-    const updateHistoryState = (type: string, snapshot: any) => {
-        const events = snapshot.docs.map((doc: any) => {
-            const data = doc.data();
-            return {
-                id: doc.id,
-                type: data.type || type, // Se o tipo estiver salvo, usa, senão usa o da coleção
-                ...data,
-                date: (data.date as Timestamp)?.toDate().toISOString() || new Date().toISOString()
-            };
-        });
-        
-        historyMap[type] = events;
-        
-        // Merge e Sort
-        const allEvents = [
-            ...historyMap.refuel,
-            ...historyMap.checkpoint,
-            ...historyMap.consumption
-        ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-        setActiveCycleHistory(allEvents);
-    };
+    const unsubAbastecimento = createListener('abastecimento', setAbastecimentoHistory);
+    const unsubCheckpoint = createListener('checkpoint', setCheckpointHistory);
+    const unsubConsumo = createListener('consumo', setConsumoHistory);
 
     return () => {
         unsubAbastecimento();
@@ -235,8 +204,21 @@ const App: React.FC = () => {
         unsubConsumo();
     };
   }, [currentUser, activeCycleId, reportCycleId]);
+  
+  // Merge histories when any of them change
+  useEffect(() => {
+    const allEvents = [...abastecimentoHistory, ...checkpointHistory, ...consumoHistory];
+    setActiveCycleHistory(allEvents);
+  }, [abastecimentoHistory, checkpointHistory, consumoHistory]);
 
-  // Merge do ciclo ativo com seu histórico carregado das subcoleções
+  const [isCreating, setIsCreating] = useState<boolean>(false);
+  const [isTrackingRoute, setIsTrackingRoute] = useState<boolean>(false);
+  const [cycleToDeleteId, setCycleToDeleteId] = useState<string | null>(null);
+  
+  const [eventToEdit, setEventToEdit] = useState<HistoryEvent | null>(null);
+  const [eventToDelete, setEventToDelete] = useState<HistoryEvent | null>(null);
+  const [routeToView, setRouteToView] = useState<HistoryEvent | null>(null);
+
   const activeCycle = cycles.find(c => c.id === activeCycleId);
   const activeCycleWithHistory = activeCycle ? {
       ...activeCycle,
@@ -246,7 +228,6 @@ const App: React.FC = () => {
       ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
   } : undefined;
 
-  // Merge para relatório
   const reportCycleRaw = cycles.find(c => c.id === reportCycleId);
   const reportCycle = reportCycleRaw ? {
       ...reportCycleRaw,
@@ -313,13 +294,10 @@ const App: React.FC = () => {
     setRouteToView(null);
   };
 
-  // Funções de CRUD usando Subcoleções
-
   const handleCreateCycle = useCallback(async (cycleData: Omit<Cycle, 'id' | 'currentMileage' | 'history' | 'status' | 'fuelAmount' | 'consumption'> & { initialFuel?: number }) => {
     if (!currentUser) return;
     const { initialFuel, ...restCycleData } = cycleData;
     
-    // Dados do documento pai
     const newCycleData = {
       ...restCycleData,
       startDate: Timestamp.fromDate(new Date(restCycleData.startDate)),
@@ -332,7 +310,6 @@ const App: React.FC = () => {
     try {
       const docRef = await addDoc(collection(db, 'usuarios', currentUser.uid, 'ciclos'), newCycleData);
       
-      // Se houver combustível inicial, adiciona na subcoleção 'abastecimento'
       if (initialFuel && initialFuel > 0) {
           await addDoc(collection(db, 'usuarios', currentUser.uid, 'ciclos', docRef.id, 'abastecimento'), {
               type: 'refuel',
@@ -349,23 +326,32 @@ const App: React.FC = () => {
     }
   }, [currentUser]);
 
-  // Função auxiliar para atualizar os agregados no documento pai
-  const updateParentAggregates = async (cycleId: string, history: HistoryEvent[]) => {
+  const updateParentAggregates = async (cycleId: string) => {
       if (!currentUser) return;
-      const cycleRef = doc(db, 'usuarios', currentUser.uid, 'ciclos', cycleId);
       
-      // Precisamos dos dados iniciais do ciclo para recalcular corretamente
       const currentCycle = cycles.find(c => c.id === cycleId);
       if (!currentCycle) return;
+
+      // Fetch all events again to ensure consistency
+      const basePath = `usuarios/${currentUser.uid}/ciclos/${cycleId}`;
+      const [abastecimentoSnap, checkpointSnap, consumoSnap] = await Promise.all([
+          getDocs(collection(db, basePath, 'abastecimento')),
+          getDocs(collection(db, basePath, 'checkpoint')),
+          getDocs(collection(db, basePath, 'consumo'))
+      ]);
       
-      const { initialMileage, name, startDate, status, id } = currentCycle;
+      const combinedHistory = [
+          ...abastecimentoSnap.docs.map(d => ({...d.data(), id: d.id, date: d.data().date.toDate().toISOString() })),
+          ...checkpointSnap.docs.map(d => ({...d.data(), id: d.id, date: d.data().date.toDate().toISOString() })),
+          ...consumoSnap.docs.map(d => ({...d.data(), id: d.id, date: d.data().date.toDate().toISOString() }))
+      ] as HistoryEvent[];
       
-      // Filtra o 'start' do cálculo pois ele é base
       const { currentMileage, fuelAmount, consumption } = recalculateCycleStateFromHistory(
-          { initialMileage, name, startDate, status, id, consumption: currentCycle.consumption },
-          history.filter(e => e.type !== 'start')
+          currentCycle,
+          combinedHistory
       );
 
+      const cycleRef = doc(db, 'usuarios', currentUser.uid, 'ciclos', cycleId);
       await updateDoc(cycleRef, {
           currentMileage,
           fuelAmount,
@@ -373,25 +359,18 @@ const App: React.FC = () => {
       });
   };
 
-  // Wrapper para adicionar documento e atualizar pai
   const addEventToSubcollection = async (collectionName: string, data: any) => {
-      if (!currentUser || !activeCycleId || !activeCycleWithHistory) return;
-      
-      // 1. Adiciona na subcoleção
-      const docRef = await addDoc(collection(db, 'usuarios', currentUser.uid, 'ciclos', activeCycleId, collectionName), {
+      if (!currentUser || !activeCycleId) return;
+      await addDoc(collection(db, 'usuarios', currentUser.uid, 'ciclos', activeCycleId, collectionName), {
           ...data,
           date: Timestamp.fromDate(new Date(data.date))
       });
-
-      // 2. Calcula novo estado localmente para atualizar o pai imediatamente
-      const newEvent = { ...data, type: data.type, id: docRef.id, date: new Date(data.date).toISOString() };
-      const newHistory = [...activeCycleWithHistory.history, newEvent];
-      await updateParentAggregates(activeCycleId, newHistory);
+      await updateParentAggregates(activeCycleId);
   };
 
   const handleAddCheckpoint = useCallback(async (newMileage: number, date: string) => {
     await addEventToSubcollection('checkpoint', { type: 'checkpoint', value: newMileage, date });
-  }, [activeCycleWithHistory]);
+  }, [activeCycleId, currentUser]);
   
   const handleAddRouteCheckpoint = useCallback(async (distance: number, date: string, routeData: { origin: any; destination: any; traveledPath: { lat: number; lng: number }[] }) => {
     if (!activeCycleWithHistory) return;
@@ -406,7 +385,7 @@ const App: React.FC = () => {
         destination: routeData.destination,
         traveledPath: routeData.traveledPath
     });
-  }, [activeCycleWithHistory]);
+  }, [activeCycleWithHistory, currentUser]);
 
 
   const handleRefuel = useCallback(async (data: { fuelAdded: number; date: string; pricePerLiter?: number; discount?: number; }) => {
@@ -415,11 +394,11 @@ const App: React.FC = () => {
     if (data.discount) payload.discount = data.discount;
     
     await addEventToSubcollection('abastecimento', payload);
-  }, [activeCycleWithHistory]);
+  }, [activeCycleId, currentUser]);
 
   const handleUpdateConsumption = useCallback(async (newConsumption: number, date: string) => {
     await addEventToSubcollection('consumo', { type: 'consumption', value: newConsumption, date });
-  }, [activeCycleWithHistory]);
+  }, [activeCycleId, currentUser]);
 
   const handleFinishCycle = useCallback(async () => {
     if (!currentUser || !activeCycleId || !activeCycleWithHistory) return;
@@ -432,7 +411,6 @@ const App: React.FC = () => {
         date: finishTimestamp
     });
 
-    // Atualiza status e adiciona data de finalização no pai
     const cycleRef = doc(db, 'usuarios', currentUser.uid, 'ciclos', activeCycleId);
     await updateDoc(cycleRef, { 
       status: 'finished',
@@ -440,7 +418,6 @@ const App: React.FC = () => {
     });
   }, [currentUser, activeCycleId, activeCycleWithHistory]);
 
-  // DELETE CYCLE
   const handleRequestDeleteCycle = (id: string) => setCycleToDeleteId(id);
   const handleCancelDelete = () => setCycleToDeleteId(null);
 
@@ -449,18 +426,15 @@ const App: React.FC = () => {
     
     const cycleDocRef = doc(db, 'usuarios', currentUser.uid, 'ciclos', cycleToDeleteId);
     try {
-      // Deletar subcoleções (requer múltiplas escritas)
       const batch = writeBatch(db);
       const subcollections = ['abastecimento', 'checkpoint', 'consumo'];
       for (const sub of subcollections) {
           const subcollectionRef = collection(db, cycleDocRef.path, sub);
-          const snapshot = await getDocs(subcollectionRef); // Use getDocs for a one-time fetch
+          const snapshot = await getDocs(subcollectionRef);
           snapshot.forEach(doc => batch.delete(doc.ref));
       }
       
-      // Deletar o documento pai
       batch.delete(cycleDocRef);
-
       await batch.commit();
 
       if (activeCycleId === cycleToDeleteId) handleGoHome();
@@ -471,7 +445,6 @@ const App: React.FC = () => {
     }
   };
 
-  // EDIT / DELETE EVENT
   const handleStartEditEvent = (event: HistoryEvent) => setEventToEdit(event);
   const handleCancelEditEvent = () => setEventToEdit(null);
 
@@ -483,7 +456,7 @@ const App: React.FC = () => {
   };
 
   const handleSaveEditEvent = async (updatedEvent: HistoryEvent) => {
-    if (!currentUser || !activeCycleId || !activeCycleWithHistory) return;
+    if (!currentUser || !activeCycleId) return;
     
     const collectionName = getCollectionNameByType(updatedEvent.type);
     if (!collectionName) return; 
@@ -493,29 +466,10 @@ const App: React.FC = () => {
     const payload: any = { ...updatedEvent, date: Timestamp.fromDate(new Date(updatedEvent.date)) };
     delete payload.id;
     
-    if (updatedEvent.type === 'refuel') {
-      const value = updatedEvent.value;
-      const pricePerLiter = updatedEvent.pricePerLiter;
-      const discount = updatedEvent.discount;
-
-      if (isNaN(value) || value <= 0) {
-        alert("Quantidade de combustível inválida.");
-        return;
-      }
-      
-      payload.value = value;
-      payload.pricePerLiter = (pricePerLiter && !isNaN(pricePerLiter)) ? pricePerLiter : undefined;
-      payload.discount = (discount && !isNaN(discount)) ? discount : undefined;
-    }
-
-    // Clean up undefined fields
     Object.keys(payload).forEach(key => payload[key] === undefined && delete payload[key]);
 
-
     await updateDoc(eventRef, payload);
-    
-    const newHistory = activeCycleWithHistory.history.map(e => e.id === updatedEvent.id ? updatedEvent : e);
-    await updateParentAggregates(activeCycleId, newHistory);
+    await updateParentAggregates(activeCycleId);
     
     setEventToEdit(null);
   };
@@ -524,15 +478,13 @@ const App: React.FC = () => {
   const handleCancelDeleteEvent = () => setEventToDelete(null);
 
   const handleConfirmDeleteEvent = async () => {
-    if (!currentUser || !activeCycleId || !eventToDelete || !activeCycleWithHistory) return;
+    if (!currentUser || !activeCycleId || !eventToDelete) return;
     
     const collectionName = getCollectionNameByType(eventToDelete.type);
     if (collectionName) {
         const eventRef = doc(db, 'usuarios', currentUser.uid, 'ciclos', activeCycleId, collectionName, eventToDelete.id);
         await deleteDoc(eventRef);
-        
-        const newHistory = activeCycleWithHistory.history.filter(e => e.id !== eventToDelete.id);
-        await updateParentAggregates(activeCycleId, newHistory);
+        await updateParentAggregates(activeCycleId);
     }
     setEventToDelete(null);
   };
@@ -593,7 +545,7 @@ const App: React.FC = () => {
   }
   
   return (
-    <div className="min-h-screen bg-[#0A0A0A] text-[#CFCFCF] flex flex-col relative overflow-hidden">
+    <div className="min-h-screen flex flex-col relative overflow-hidden">
       {appLoadState === 'loading' && <SplashScreen />}
 
       {appLoadState === 'loaded' && (

@@ -1,5 +1,4 @@
 
-
 import React, { useMemo } from 'react';
 import type { Cycle } from '../types';
 import { Button } from './ui/Button';
@@ -57,7 +56,12 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ activeCycles, finishedCycles, o
 service cloud.firestore {
   match /databases/{database}/documents {
     match /usuarios/{userId}/{document=**} {
-      allow read, write: if request.auth.uid == userId;
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    match /live_sessions/{sessionId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth != null && request.auth.uid == resource.data.driverId;
     }
   }
 }`}

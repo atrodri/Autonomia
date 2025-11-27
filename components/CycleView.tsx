@@ -24,7 +24,6 @@ interface CycleViewProps {
 
 const getCurrentDateTimeLocal = () => {
     const now = new Date();
-    // Adjust for timezone offset
     const timezoneOffset = now.getTimezoneOffset() * 60000;
     const localDate = new Date(now.getTime() - timezoneOffset);
     return localDate.toISOString().slice(0, 16);
@@ -44,8 +43,9 @@ const parseKilometerInput = (formattedValue: string): number => {
 };
 
 const HistoryItem: React.FC<{ event: HistoryEvent; onEdit: (event: HistoryEvent) => void; onDelete: (event: HistoryEvent) => void; onViewRoute: (event: HistoryEvent) => void; }> = ({ event, onEdit, onDelete, onViewRoute }) => {
-  const isEditable = event.type === 'checkpoint' || event.type === 'refuel';
+  const isEditable = event.type === 'checkpoint' || event.type === 'refuel' || event.type === 'consumption';
   const isViewable = event.type === 'route';
+  const isDeletable = event.type === 'checkpoint' || event.type === 'refuel' || event.type === 'route' || event.type === 'consumption';
   const isClickable = isEditable || isViewable;
   
   const getDescription = () => {
@@ -100,8 +100,7 @@ const HistoryItem: React.FC<{ event: HistoryEvent; onEdit: (event: HistoryEvent)
         month: '2-digit',
         year: 'numeric',
         hour: '2-digit',
-        minute: '2-digit',
-        timeZone: 'UTC'
+        minute: '2-digit'
     });
   };
 
@@ -122,21 +121,23 @@ const HistoryItem: React.FC<{ event: HistoryEvent; onEdit: (event: HistoryEvent)
         <p className="text-white text-sm">{getDescription()}</p>
         <p className="text-xs text-[#888]">{formatHistoryDateTime(event.date)}</p>
       </div>
-      {(isEditable || (event.type === 'route')) && (
+      {(isEditable || isDeletable) && (
         <div className="flex-shrink-0 mt-1 flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
             {isEditable && 
                 <button onClick={() => onEdit(event)} title="Editar Evento" className="text-gray-400 hover:text-white">
                     <EditIcon className="w-5 h-5" />
                 </button>
             }
-            <button onClick={() => onDelete(event)} title="Excluir Evento" className="text-gray-400 hover:text-red-500">
-                <TrashIcon className="w-5 h-5" />
-            </button>
+            {isDeletable &&
+                <button onClick={() => onDelete(event)} title="Excluir Evento" className="text-gray-400 hover:text-red-500">
+                    <TrashIcon className="w-5 h-5" />
+                </button>
+            }
         </div>
       )}
       {isViewable && !isEditable && (
          <div className="flex-shrink-0 mt-1 flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-            <p className="text-xs text-[#FF6B00]">Ver Rota</p>
+            <p className="text-xs text-[#FF6B00]" onClick={handleClick}>Ver Rota</p>
          </div>
       )}
     </div>
@@ -162,6 +163,9 @@ const EditEventModal: React.FC<{
                 case 'checkpoint':
                     setValue(formatKilometerInput((event.value ?? 0).toString()));
                     break;
+                case 'consumption':
+                    setValue((event.value ?? 0).toString());
+                    break;
                 case 'refuel':
                     setValue((event.value ?? 0).toString());
                     setPrice((event.pricePerLiter ?? '').toString());
@@ -175,8 +179,8 @@ const EditEventModal: React.FC<{
       if (!event) return;
         let updatedEvent: HistoryEvent = { ...event, date: new Date(date).toISOString() };
 
-        if (updatedEvent.type === 'checkpoint') {
-            const parsedValue = parseKilometerInput(value);
+        if (updatedEvent.type === 'checkpoint' || updatedEvent.type === 'consumption') {
+            const parsedValue = updatedEvent.type === 'checkpoint' ? parseKilometerInput(value) : parseFloat(value);
             if (!isNaN(parsedValue)) {
                 updatedEvent.value = parsedValue;
             }
@@ -188,19 +192,22 @@ const EditEventModal: React.FC<{
             if (!isNaN(parsedValue)) {
                 updatedEvent.value = parsedValue;
             }
-            updatedEvent.pricePerLiter = !isNaN(parsedPrice) ? parsedPrice : undefined;
-            updatedEvent.discount = !isNaN(parsedDiscount) ? parsedDiscount : undefined;
+            updatedEvent.pricePerLiter = !isNaN(parsedPrice) && parsedPrice > 0 ? parsedPrice : undefined;
+            updatedEvent.discount = !isNaN(parsedDiscount) && parsedDiscount > 0 ? parsedDiscount : undefined;
         }
 
         onSave(updatedEvent);
     };
     
     return (
-        <Modal isOpen={!!event} onClose={onClose} title={`Editar ${event.type === 'checkpoint' ? 'Checkpoint' : 'Abastecimento'}`}>
+        <Modal isOpen={!!event} onClose={onClose} title={`Editar ${event.type}`}>
             <div className="space-y-4">
                 <Input id="edit-date" label="Data e Hora" type="datetime-local" value={date} onChange={e => setDate(e.target.value)} />
                 {event.type === 'checkpoint' && (
                     <Input id="edit-checkpoint-value" label="Quilometragem (km)" type="text" inputMode="numeric" value={value} onChange={e => setValue(formatKilometerInput(e.target.value))} />
+                )}
+                {event.type === 'consumption' && (
+                     <Input id="edit-consumption-value" label="Consumo (km/l)" type="number" value={value} onChange={e => setValue(e.target.value)} />
                 )}
                 {event.type === 'refuel' && (
                     <>
@@ -375,7 +382,7 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
              <div className="my-8 p-6 bg-[#0A0A0A] border border-dashed border-[#444] rounded-lg text-center">
               <h3 className="text-lg font-semibold text-[#FF6B00]">Vamos começar!</h3>
               <p className="mt-2 text-[#CFCFCF]">
-                Para calcular la autonomia, precisamos de mais algumas informações.
+                Para calcular a autonomia, precisamos de mais algumas informações.
               </p>
               <ul className="mt-4 text-left inline-block space-y-2 list-disc list-inside">
                 {(cycle.fuelAmount ?? 0) <= 0 && (

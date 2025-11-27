@@ -33,11 +33,8 @@ const LoginView: React.FC<LoginViewProps> = ({ onSwitchToRegister, onSuccess }) 
     } catch (err: any) {
       const errorCodes = ['auth/invalid-credential', 'auth/user-not-found', 'auth/wrong-password'];
       if (errorCodes.includes(err.code)) {
-        // This is an expected user error, not an application bug.
-        // Don't log it as a critical error to the console.
         setError("Nome de usuário/senha incorretos.");
       } else {
-        // This is an unexpected error.
         console.error("Login failed with unexpected error:", err);
         setError("Ocorreu um erro ao fazer login. Tente novamente.");
       }

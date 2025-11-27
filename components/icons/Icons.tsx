@@ -1,4 +1,3 @@
-
 import React from 'react';
 
 export const CheckpointIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (

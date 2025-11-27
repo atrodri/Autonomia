@@ -1,6 +1,3 @@
-
-import { User } from 'firebase/auth';
-
 export type HistoryEvent =
   | { id: string; type: 'start' | 'checkpoint' | 'consumption' | 'finish'; value: number; date: string; }
   | { id: string; type: 'refuel'; value: number; date: string; pricePerLiter?: number; discount?: number; }

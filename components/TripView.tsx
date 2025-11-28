@@ -327,23 +327,10 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
       if (endMarkerRef.current) endMarkerRef.current.setMap(null);
       if (destinationMarkerRef.current) destinationMarkerRef.current.setMap(null); // Clear planning marker
 
-      // 1. Priority: Render the actual traveled path (Recorded GPS points)
-      if (tripToView.traveledPath && tripToView.traveledPath.length > 0) {
-        
-        // Draw the path using Polyline (Actual GPS Trace)
-        pathPolylineRef.current = new window.google.maps.Polyline({
-          path: tripToView.traveledPath,
-          geodesic: true,
-          strokeColor: '#FF6B00', // Orange for actual path
-          strokeOpacity: 1.0,
-          strokeWeight: 6,
-        });
-        pathPolylineRef.current.setMap(mapInstance.current);
-
-        // Add Start Marker
-        const startPoint = tripToView.traveledPath[0];
+      const renderMarkers = (start: any, end: any) => {
+        // Add Start Marker (Green)
         startMarkerRef.current = new window.google.maps.Marker({
-            position: startPoint,
+            position: start,
             map: mapInstance.current,
             icon: {
                 path: window.google.maps.SymbolPath.CIRCLE,
@@ -356,38 +343,58 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
             title: "Início"
         });
 
-        // Add End Marker
-        const endPoint = tripToView.traveledPath[tripToView.traveledPath.length - 1];
+        // Add End Marker (Red Dot)
         endMarkerRef.current = new window.google.maps.Marker({
-            position: endPoint,
+            position: end,
             map: mapInstance.current,
             icon: {
-                path: 'M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z M4 22v-7', // Flag
-                scale: 1.5,
+                path: window.google.maps.SymbolPath.CIRCLE,
+                scale: 7,
                 fillColor: '#EF4444', // Red
                 fillOpacity: 1,
                 strokeWeight: 2,
                 strokeColor: '#ffffff',
-                anchor: new window.google.maps.Point(4, 22),
             },
             title: "Chegada"
         });
+      };
 
-        // Fit bounds to the actual path
-        const bounds = new window.google.maps.LatLngBounds();
-        tripToView.traveledPath.forEach(point => bounds.extend(point));
-        mapInstance.current.fitBounds(bounds);
+      const drawPolylineFallback = () => {
+         // Priority 2: Render the actual traveled path (Recorded GPS points)
+         if (tripToView.traveledPath && tripToView.traveledPath.length > 0) {
+            // Draw the path using Polyline (Actual GPS Trace)
+            pathPolylineRef.current = new window.google.maps.Polyline({
+              path: tripToView.traveledPath,
+              geodesic: true,
+              strokeColor: '#FF6B00', // Orange for actual path
+              strokeOpacity: 1.0,
+              strokeWeight: 6,
+            });
+            pathPolylineRef.current.setMap(mapInstance.current);
 
-        if (tripToView.distanciaPercorrida) {
-          setTripSummary({ 
-              distance: `${tripToView.distanciaPercorrida.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} km`, 
-              duration: 'Percurso Realizado' 
-          });
-        }
+            const startPoint = tripToView.traveledPath[0];
+            const endPoint = tripToView.traveledPath[tripToView.traveledPath.length - 1];
+            renderMarkers(startPoint, endPoint);
 
-      } else if (tripToView.origin && tripToView.destination) {
-        // Fallback for old data: Render theoretical route
+            // Fit bounds to the actual path
+            const bounds = new window.google.maps.LatLngBounds();
+            tripToView.traveledPath.forEach(point => bounds.extend(point));
+            mapInstance.current.fitBounds(bounds);
+
+            if (tripToView.distanciaPercorrida) {
+              setTripSummary({ 
+                  distance: `${tripToView.distanciaPercorrida.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} km`, 
+                  duration: 'Percurso Realizado' 
+              });
+            }
+          }
+      };
+
+      // 1. Priority: Render route via DirectionsService (Snaps to roads, avoids straight lines)
+      if (tripToView.origin && tripToView.destination) {
         directionsRenderer.current.setMap(mapInstance.current); 
+        directionsRenderer.current.setOptions({ suppressMarkers: true }); // We use our own markers
+
         const requestOrigin = tripToView.origin.location ? tripToView.origin.location : tripToView.origin;
         const requestDestination = tripToView.destination.location ? tripToView.destination.location : tripToView.destination;
 
@@ -398,11 +405,18 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
               directionsRenderer.current.setDirections(result);
               const leg = result.routes[0].legs[0];
               setTripSummary({ distance: leg.distance.text, duration: leg.duration.text });
+              
+              // Use leg start/end for markers to match the rendered route line
+              renderMarkers(leg.start_location, leg.end_location);
             } else {
-              setError("Não foi possível recarregar esta rota.");
+              console.warn("Could not reload route via DirectionsService. Falling back to recorded path.", status);
+              drawPolylineFallback();
             }
           }
         );
+      } else {
+        // Fallback if no origin/destination data
+        drawPolylineFallback();
       }
     }
   }, [mapStatus, phase, tripToView]);

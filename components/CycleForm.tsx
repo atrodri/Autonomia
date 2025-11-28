@@ -22,9 +22,16 @@ const parseKilometerInput = (formattedValue: string): number => {
   return parseInt(formattedValue.replace(/\./g, ''), 10);
 };
 
+// Helper to get local ISO string for datetime-local input
+const getLocalISOString = () => {
+    const now = new Date();
+    const offset = now.getTimezoneOffset() * 60000;
+    return new Date(now.getTime() - offset).toISOString().slice(0, 16);
+};
+
 const CycleForm: React.FC<CycleFormProps> = ({ onSubmit, onCancel }) => {
   const [name, setName] = useState('');
-  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(getLocalISOString());
   const [initialMileage, setInitialMileage] = useState('');
   const [initialFuel, setInitialFuel] = useState('');
 
@@ -37,7 +44,7 @@ const CycleForm: React.FC<CycleFormProps> = ({ onSubmit, onCancel }) => {
     }
     onSubmit({
       name,
-      startDate,
+      startDate: new Date(startDate).toISOString(), // Convert back to UTC ISO for storage
       initialMileage: parsedMileage,
       initialFuel: initialFuel ? parseFloat(initialFuel) : undefined,
     });
@@ -57,9 +64,9 @@ const CycleForm: React.FC<CycleFormProps> = ({ onSubmit, onCancel }) => {
           required
         />
         <Input
-          label="Data de Início"
+          label="Data e Hora de Início"
           id="startDate"
-          type="date"
+          type="datetime-local"
           value={startDate}
           onChange={(e) => setStartDate(e.target.value)}
           required

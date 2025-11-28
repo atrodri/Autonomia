@@ -1,3 +1,4 @@
+
 import React, { useMemo } from 'react';
 import type { Cycle } from '../types';
 import { Card } from './ui/Card';
@@ -52,14 +53,13 @@ const ReportView: React.FC<ReportViewProps> = ({ cycle, onGoBack }) => {
     finalConsumption,
   } = reportData;
   
-  const formatDate = (date: Date, isUtc: boolean = false) => {
-    const options: Intl.DateTimeFormatOptions = {
-        day: '2-digit', month: '2-digit', year: 'numeric'
-    };
-    if (isUtc) {
-        options.timeZone = 'UTC';
-    }
-    return date.toLocaleDateString('pt-BR', options);
+  const formatDate = (date: Date) => {
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${day}/${month}/${year}, ${hours}:${minutes}`;
   };
 
   const numberFormatter = (value: number, options: Intl.NumberFormatOptions = {}) => 
@@ -93,7 +93,7 @@ const ReportView: React.FC<ReportViewProps> = ({ cycle, onGoBack }) => {
               <div>
                 <p className="text-sm text-[#CFCFCF] uppercase tracking-wider">Período</p>
                 <p className="text-lg font-semibold text-white">
-                  {formatDate(startDate, true)} - {formatDate(lastEventDate)}
+                  {formatDate(startDate)} <br/><span className="text-sm text-[#888]">até</span><br/> {formatDate(lastEventDate)}
                 </p>
               </div>
               <div>

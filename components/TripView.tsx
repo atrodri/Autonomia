@@ -102,10 +102,9 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
         trafficLayer.setMap(mapInstance.current);
 
         // Allow user to drag map and stop following
+        // IMPORTANT: We remove the phase check here because mapInstance is created once (closure stale state)
         mapInstance.current.addListener('dragstart', () => {
-            if (phase === 'navigating') {
-                setIsFollowingUser(false);
-            }
+            setIsFollowingUser(false);
         });
 
         directionsService.current = new window.google.maps.DirectionsService();

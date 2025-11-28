@@ -1,7 +1,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { db } from '../firebase';
-import { MyLocationIcon } from './icons/Icons';
+import { MyLocationIcon, FinishFlagIcon } from './icons/Icons';
 
 declare global {
   interface Window {
@@ -168,15 +168,10 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
           }
         }
       } else {
+        // Document deleted = Route ended by driver
         setStatus('ended');
-        
-        if (driverMarker.current) {
-          driverMarker.current.setMap(null);
-          driverMarker.current = null;
-        }
-        if (directionsRenderer.current) {
-          directionsRenderer.current.setMap(null);
-        }
+        // NOTE: We deliberately DO NOT remove the markers/route here. 
+        // We want them to remain visible "frozen" behind the dark overlay.
       }
     }, (err) => {
       console.error("Error listening to live session:", err);
@@ -185,7 +180,7 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
     });
 
     return () => unsubscribe();
-  }, [sessionId, routeData, isFollowingDriver]); // Added isFollowingDriver dependency to ensure effect uses latest state if needed
+  }, [sessionId, routeData, isFollowingDriver]);
 
   const handleRecenter = () => {
       setIsFollowingDriver(true);
@@ -239,22 +234,31 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
       )}
 
       {status === 'ended' && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm text-center">
-            <div className="mb-4">
-                <h1 className="text-4xl font-bold text-white tracking-tighter">
-                    autonomia<span className="text-[#FF6B00]">+</span>
-                </h1>
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/85 backdrop-blur-sm text-center px-6 transition-opacity duration-500">
+            <div className="mb-6 animate-bounce">
+                 <FinishFlagIcon className="w-20 h-20 text-[#FF6B00]" />
             </div>
-            <div className="bg-[#141414] p-4 rounded-lg border border-red-700">
-                <h2 className="text-lg font-bold text-red-400">ROTA FINALIZADA</h2>
-                <p className="text-sm text-[#888] mt-1">{error || "Esta sessão de navegação foi encerrada."}</p>
+            <div className="mb-8">
+                <h1 className="text-4xl font-bold text-white tracking-tighter mb-2">
+                    ROTA FINALIZADA
+                </h1>
+                <div className="h-1 w-20 bg-[#FF6B00] mx-auto rounded-full mb-4"></div>
+                <p className="text-lg text-gray-300">
+                    O motorista encerrou a navegação.
+                </p>
+                {error && <p className="text-sm text-red-400 mt-2">{error}</p>}
+            </div>
+            
+            <div className="p-4 bg-[#141414] border border-[#333] rounded-lg shadow-xl max-w-xs w-full">
+                <p className="text-xs text-[#666] uppercase tracking-widest font-bold">Obrigado por acompanhar</p>
             </div>
         </div>
       )}
       
       {status === 'connecting' && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-[#141414] p-6 rounded-lg text-center border border-[#444]">
+          <div className="bg-[#141414] p-6 rounded-lg text-center border border-[#444] shadow-2xl">
+            <div className="w-8 h-8 border-4 border-[#FF6B00] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
             <h2 className="text-lg font-bold text-white">Conectando ao motorista...</h2>
           </div>
         </div>

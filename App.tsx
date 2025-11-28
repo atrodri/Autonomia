@@ -68,6 +68,7 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentAuthView, setCurrentAuthView] = useState<AuthViewType>('landing');
   const [firestoreError, setFirestoreError] = useState<string | null>(null);
+  const [isLoadingCycles, setIsLoadingCycles] = useState<boolean>(true);
 
   // Logic for Copilot Mode
   const [copilotSessionId, setCopilotSessionId] = useState<string | null>(null);
@@ -112,6 +113,7 @@ const App: React.FC = () => {
         setFirestoreError(null);
         setAuthState('unauthenticated');
         setCurrentAuthView('landing');
+        setIsLoadingCycles(false);
       }
     });
     return () => unsubscribe();
@@ -120,6 +122,7 @@ const App: React.FC = () => {
   // Listener for Cycles list
   useEffect(() => {
     if (currentUser?.uid) {
+        setIsLoadingCycles(true);
         setFirestoreError(null);
         const cyclesCollectionRef = db.collection('usuarios').doc(currentUser.uid).collection('ciclos');
         const q = cyclesCollectionRef.orderBy('startDate', 'desc');
@@ -142,7 +145,9 @@ const App: React.FC = () => {
               } as Cycle
             });
             setCycles(cyclesData);
+            setIsLoadingCycles(false);
         }, (error) => {
+            setIsLoadingCycles(false);
             if (error.code === 'permission-denied') {
                 console.warn("Permission denied fetching cycles. Check security rules.");
                 setFirestoreError("Permissão negada. Verifique suas Regras de Segurança do Firestore.");
@@ -543,6 +548,7 @@ const App: React.FC = () => {
         onDeleteCycle={handleRequestDeleteCycle}
         showContent={appLoadState === 'loaded'}
         firestoreError={firestoreError}
+        isLoading={isLoadingCycles}
       />
     );
   };

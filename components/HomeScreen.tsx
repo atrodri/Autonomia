@@ -14,9 +14,10 @@ interface HomeScreenProps {
   onDeleteCycle: (id: string) => void;
   showContent: boolean;
   firestoreError: string | null;
+  isLoading: boolean;
 }
 
-const HomeScreen: React.FC<HomeScreenProps> = ({ activeCycles, finishedCycles, onNewCycleClick, onSelectCycle, onSelectReport, onDeleteCycle, showContent, firestoreError }) => {
+const HomeScreen: React.FC<HomeScreenProps> = ({ activeCycles, finishedCycles, onNewCycleClick, onSelectCycle, onSelectReport, onDeleteCycle, showContent, firestoreError, isLoading }) => {
   const numberFormatter = useMemo(() => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 }), []);
 
   const formatDate = (dateStr?: string) => {
@@ -30,8 +31,27 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ activeCycles, finishedCycles, o
     return `${day}/${month}/${year}, ${hours}:${minutes}`;
   };
 
+  // Styles for the specific loading animation requested
+  const loadingStyles = `
+    @keyframes colorPulse {
+      0%, 100% { color: #888888; }
+      50% { color: #FF6B00; }
+    }
+    @keyframes dotBounce {
+      0%, 80%, 100% { transform: scale(0); opacity: 0.5; }
+      40% { transform: scale(1); opacity: 1; }
+    }
+    .loading-text-anim {
+      animation: colorPulse 2s infinite ease-in-out;
+    }
+    .dot-anim {
+      animation: dotBounce 1.4s infinite ease-in-out both;
+    }
+  `;
+
   return (
     <div className={`flex flex-col items-center text-center w-full transition-opacity duration-500 ${showContent ? 'opacity-100' : 'opacity-0'}`}>
+      <style>{loadingStyles}</style>
       <div className="mb-8 flex items-end justify-center">
          <h1 className="text-5xl md:text-6xl font-bold text-white tracking-tighter">
           autonomia<span className="text-[#FF6B00]">+</span>
@@ -47,7 +67,18 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ activeCycles, finishedCycles, o
 
         <div className="w-full max-w-2xl text-left">
           <h2 className="text-base font-semibold uppercase tracking-wider text-[#888] mb-3 px-1">Ciclos Ativos</h2>
-          {firestoreError ? (
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center py-12">
+                <div className="loading-text-anim text-xl font-medium tracking-widest flex items-baseline">
+                    carregando
+                    <div className="flex ml-1 gap-1">
+                        <div className="dot-anim w-1.5 h-1.5 bg-current rounded-full" style={{ animationDelay: '-0.32s' }}></div>
+                        <div className="dot-anim w-1.5 h-1.5 bg-current rounded-full" style={{ animationDelay: '-0.16s' }}></div>
+                        <div className="dot-anim w-1.5 h-1.5 bg-current rounded-full"></div>
+                    </div>
+                </div>
+            </div>
+          ) : firestoreError ? (
              <Card className="!p-6 text-center border border-dashed border-red-700 bg-red-900/20">
                 <h3 className="text-lg font-bold text-red-400">Erro de Permissão do Firestore</h3>
                 <p className="mt-2 text-red-300">O aplicativo não conseguiu carregar seus dados. Isso geralmente acontece porque as Regras de Segurança do seu banco de dados precisam ser configuradas.</p>

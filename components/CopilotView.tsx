@@ -1,6 +1,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { db } from '../firebase';
+import { MyLocationIcon } from './icons/Icons';
 
 declare global {
   interface Window {
@@ -19,18 +20,24 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
   const mapInstance = useRef<any>(null);
   const driverMarker = useRef<any>(null);
   const directionsRenderer = useRef<any>(null);
+  
+  // To track where to re-center
+  const lastDriverPosition = useRef<{lat: number, lng: number} | null>(null);
 
   const [status, setStatus] = useState<CopilotStatus>('connecting');
   const [error, setError] = useState<string | null>(null);
   const [currentInstruction, setCurrentInstruction] = useState('Aguardando início da navegação...');
   const [routeData, setRouteData] = useState<any>(null);
+  
+  // Logic to follow user or allow free look
+  const [isFollowingDriver, setIsFollowingDriver] = useState(true);
 
   useEffect(() => {
     const initMap = (center: { lat: number; lng: number }) => {
       if (mapRef.current && !mapInstance.current) {
         mapInstance.current = new window.google.maps.Map(mapRef.current, {
           center,
-          zoom: 16,
+          zoom: 18,
           disableDefaultUI: true,
           styles: [
             { elementType: "geometry", stylers: [{ color: "#242f3e" }] },
@@ -39,7 +46,6 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
             { featureType: "road", elementType: "geometry", stylers: [{ color: "#38414e" }] },
             { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#212a37" }] },
             { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#9ca5b3" }] },
-            // Darker highway to contrast with Orange Route
             { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#2c3440" }] },
             { featureType: "water", elementType: "geometry", stylers: [{ color: "#17263c" }] },
           ],
@@ -53,6 +59,11 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
             suppressMarkers: true,
         });
         directionsRenderer.current.setMap(mapInstance.current);
+
+        // Allow co-pilot to drag map and stop following
+        mapInstance.current.addListener('dragstart', () => {
+             setIsFollowingDriver(false);
+        });
       }
     };
 
@@ -123,6 +134,8 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
         }
         
         if (position && mapInstance.current) {
+          lastDriverPosition.current = position;
+
           if (!driverMarker.current) {
             driverMarker.current = new window.google.maps.Marker({
               position,
@@ -144,9 +157,14 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
             icon.rotation = heading;
             driverMarker.current.setIcon(icon);
           }
-          if (status === 'active') {
+          
+          // Only pan if we are in "Following" mode
+          if (isFollowingDriver) {
              mapInstance.current.panTo(position);
-             mapInstance.current.setZoom(18);
+             // Ensure zoom stays close for navigation feel
+             if (mapInstance.current.getZoom() < 16) {
+                 mapInstance.current.setZoom(18);
+             }
           }
         }
       } else {
@@ -167,7 +185,15 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
     });
 
     return () => unsubscribe();
-  }, [sessionId, routeData]); 
+  }, [sessionId, routeData, isFollowingDriver]); // Added isFollowingDriver dependency to ensure effect uses latest state if needed
+
+  const handleRecenter = () => {
+      setIsFollowingDriver(true);
+      if (lastDriverPosition.current && mapInstance.current) {
+          mapInstance.current.panTo(lastDriverPosition.current);
+          mapInstance.current.setZoom(18);
+      }
+  };
 
   return (
     <div className="fixed inset-0 bg-[#0A0A0A] z-50">
@@ -175,8 +201,8 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
 
       {status === 'active' && (
         <>
-            <div className="absolute top-0 left-0 right-0 p-4 z-20">
-                <div className="bg-[#141414]/80 p-3 rounded-lg border border-[#444] max-w-sm mx-auto text-center shadow-lg backdrop-blur-md">
+            <div className="absolute top-0 left-0 right-0 p-4 z-20 pointer-events-none">
+                <div className="bg-[#141414]/80 p-3 rounded-lg border border-[#444] max-w-sm mx-auto text-center shadow-lg backdrop-blur-md pointer-events-auto">
                     <h1 className="text-xl font-bold text-white tracking-tight">
                         autonomia<span className="text-[#FF6B00]">+</span>
                     </h1>
@@ -186,8 +212,24 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
                 </div>
             </div>
 
-            <div className="absolute bottom-0 left-0 right-0 p-4 space-y-3 z-10">
-                <div className="bg-[#141414]/90 p-4 rounded-lg shadow-lg text-center border border-[#444] max-w-lg mx-auto backdrop-blur-md">
+            <div className="absolute bottom-0 left-0 right-0 p-4 space-y-3 z-10 pointer-events-none">
+                <div className="relative max-w-lg mx-auto pointer-events-auto">
+                    {/* Re-center Button */}
+                    <button
+                        type="button"
+                        onClick={handleRecenter}
+                        className={`absolute -top-16 right-0 p-3 rounded-full shadow-lg z-50 transition-all duration-300 ${
+                            isFollowingDriver 
+                            ? 'bg-[#FF6B00] text-black border border-[#FF6B00]' 
+                            : 'bg-[#141414]/90 text-[#FF6B00] border border-[#FF6B00] animate-bounce hover:bg-[#2a2a2a]'
+                        }`}
+                        title="Recentralizar no motorista"
+                    >
+                        <MyLocationIcon className="w-6 h-6" />
+                    </button>
+                </div>
+
+                <div className="bg-[#141414]/90 p-4 rounded-lg shadow-lg text-center border border-[#444] max-w-lg mx-auto backdrop-blur-md pointer-events-auto">
                     <p className="text-lg font-semibold text-white min-h-[28px]">
                         {currentInstruction}
                     </p>
